@@ -34,11 +34,11 @@
     //import Scrollable from '@windy/Scrollable';
     //import format from '@windy/format';
     //import Drag from '@windy/Drag';  use bottomSlide
-    //import BottomSlide from '@windy/BottomSlide';
-
+    import BottomSlide from '@windy/BottomSlide';
     import pluginDataLoader from '@windy/plugins/plugin-data-loader';
-
     import ib from './infobox.mjs';
+
+
 
 
     const load = pluginDataLoader({
@@ -256,6 +256,13 @@
             }
         });
     }
+
+    $("#radiosonde-container").addEventListener("touchmove", e=>{
+        let x=e.targetTouches[0].clientX;
+        let y=e.targetTouches[0].clientY;
+        let {top,bottom,left,right}=document.getElementById("tooltipRect").getBoundingClientRect();
+        if (x>left && x<right && y>top && y<bottom) e.preventDefault();
+    }, true);
 
 
 </script>
