@@ -55,12 +55,12 @@
     const dayMs=1000*60*60*24;
     const h1=1000*60*60;
 
-    const maxAge=168; //hours in a week.
+    let maxAge=168; //hours in a week.
     let reqAge=24;
     let prevColor, prevMarker;
     let markers=[];
 
-    const datapath="https://radiosonde.mah.priv.at/data-dev/";
+    const datapath="https://radiosonde.mah.priv.at/data/";
     let summaryFmt;
 
     ////marker properties and colors
@@ -83,22 +83,28 @@
         return a.match(/#(..)(..)(..)/).filter((n,i)=>i).map(n=>parseInt(n,16)).concat(0);
     }
 
-    const ageColorsInstance = Color.instance({
-        ident: 'ageColors',
-        steps: 1024,
-        default: viridisStops.slice(0).reverse().map((a,i)=>[i*4,hex2RgbA(a)])
-    });
+    let ageColorsInstance, ageColors,  getAgeColor;
 
-    const ageColors = ageColorsInstance.getColor.call(ageColorsInstance);
+    const initColors = () => {
 
-    const getAgeColor = age => {  //age in hours
-        const [R, G, B] = ageColors.RGBA.call(ageColors, age);
-        return `rgba(${R},${G},${B}, 1)`;
-    };
+        let ii=Math.floor(maxAge/(viridisStops.length-1));
 
-    const getOpacity = ({age}) => {
-        return age>reqAge+6?0: age>reqAge? (age-reqAge)/6: 1;
+        console.log(ii);
+
+        ageColorsInstance = Color.instance({
+            ident: 'ageColors',
+            steps: 1024,
+            default: viridisStops.slice(0).reverse().map((a,i)=>[i*ii,hex2RgbA(a)])
+        });
+
+        ageColors = ageColorsInstance.getColor.call(ageColorsInstance);
+
+        getAgeColor = age => {  //age in hours
+            const [R, G, B] = ageColors.RGBA.call(ageColors, age);
+            return `rgba(${R},${G},${B}, 1)`;
+        };
     }
+
 
 
 
@@ -108,7 +114,7 @@
         <div id="open-radiosonde-plugin" class='radiosonde-button inlined' data-icon='d' >Radiosonde</div>
         <div id="radiosonde-age-value" class='radiosonde-button'></div>
         <div id="radiosonde-range-container">
-            <input id="radiosonde-range" type="range" max="168" min="0" step="1">
+            <input id="radiosonde-range" type="range" min="0" max="168" step="1">
         </div>
         `
         , "open-radiosonde-plugin" //id of the button which will open the left hand pane
@@ -119,7 +125,7 @@
     $("#radiosonde-range-container").style.background=`linear-gradient(90deg,${viridisStops.join(",")})`;
 
     const handleAgeRangeInput = () => {
-        reqAge= 168 - $("#radiosonde-range").value;
+        reqAge= maxAge - $("#radiosonde-range").value;
         $("#radiosonde-age-value").innerHTML =  `Newer than ${reqAge} hrs`;
         markers.forEach(m=>{
             if(m.age<reqAge){
@@ -132,7 +138,6 @@
 
     $("#radiosonde-range").addEventListener("input", handleAgeRangeInput);
 
-    $("#radiosonde-range").value= maxAge - (reqAge = 24);
 
     //// draw circles
 
@@ -145,36 +150,20 @@
 
     function dataURI(sid, ascent) {
         var ts = new Date(ascent.syn_timestamp * 1000).toJSON();
-        if (summaryFmt < 4) {
-            return datapath +
-                source_map[ascent.source] +
-                sid.substring(0, 2) + "/" +
-                sid.substring(2, 5) + "/" +
-                sid + "_" +
-                ts.substring(0, 4) +
-                ts.substring(5, 7) +
-                ts.substring(8, 10) + "_" +
-                ts.substring(11, 13) +
-                ts.substring(14, 16) +
-                ts.substring(17, 19) +
-                ".geojson";
-        }
-        else {
-            return datapath +
-                source_map[ascent.source] +
-                sid.substring(0, 2) + "/" +
-                sid.substring(2, 5) + "/" +
-                ts.substring(0, 4) + "/" +
-                ts.substring(5, 7) + "/" +
-                sid + "_" +
-                ts.substring(0, 4) +
-                ts.substring(5, 7) +
-                ts.substring(8, 10) + "_" +
-                ts.substring(11, 13) +
-                ts.substring(14, 16) +
-                ts.substring(17, 19) +
-                ".geojson";
-        }
+        return datapath +
+            source_map[ascent.source] +
+            sid.substring(0, 2) + "/" +
+            sid.substring(2, 5) + "/" +
+            ts.substring(0, 4) + "/" +
+            ts.substring(5, 7) + "/" +
+            sid + "_" +
+            ts.substring(0, 4) +
+            ts.substring(5, 7) +
+            ts.substring(8, 10) + "_" +
+            ts.substring(11, 13) +
+            ts.substring(14, 16) +
+            ts.substring(17, 19) +
+            ".geojson";
     }
 
     const windDirection = (x,y) => ((2*Math.PI + Math.atan2(x,y))*180/Math.PI)%360;
@@ -182,10 +171,18 @@
     ////load all the summary:
     fetch(datapath+"summary.geojson").then(r=>r.json()).then(sum=>{
         summaryFmt = sum.properties.fmt;
+
+        maxAge=Math.round(sum.properties.max_age/3600);
+        $("#radiosonde-range").max=maxAge;
+        $("#radiosonde-range").value= maxAge - (reqAge = 24);
+
+        initColors();
+
         sum.features.forEach(d=>{
             let [lng,lat]=d.geometry.coordinates;
 
             //find newest ascent,  not sure if needed,  but jst in case
+            /*
             let iNewestAsc;
             let newest=-Infinity;
             d.properties.ascents.forEach((a,i)=>{
@@ -193,9 +190,9 @@
                     newest=a.syn_timestamp;
                     iNewestAsc=i;
                 }
-            });
+            }); */
 
-            let asc=d.properties.ascents[iNewestAsc];
+            let asc=d.properties.ascents[0];
             let age= (Date.now()/1000 - asc.syn_timestamp)/3600;
             markerOptions.color=getAgeColor(age);
             let l = markers.push(
