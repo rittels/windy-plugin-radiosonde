@@ -1,5 +1,6 @@
 <plugin>
 
+<link rel="stylesheet" href="https://unpkg.com/skewt-plus/dist/skewt.css">
 <div class="sliding-x" data-ref="slidingX"></div>
 
 <div id="radiosonde-container" class="plugin-content" >
@@ -7,6 +8,15 @@
     <div class="desktab-heading size-xl" ><b>Radiosonde</b></div>
     <div class="mobile-title" >Radiosonde</div>
     <div id="skewt-container" class="skew-t"></div>
+
+    <table class="settings" style="margin-top:10px">
+        <tr data-ref="selProduct">
+            <td>Compare model:</td>
+            <td data-do="set,ecmwf" class="select-product">ecmwf</td>
+            <td data-do="set,icon" class="select-product">icon</td>
+            <td data-do="set,gfs" class="select-product">gfs</td>
+        </tr>
+    </table>
 
 </div>
 
@@ -28,7 +38,7 @@
     import Color from '@windy/Color';
 
     //import BindedCheckbox from '@windy/BindedCheckbox';
-    //import Switch from '@windy/Switch';
+    import Switch from '@windy/Switch';
     //import BindedSwitch from '@windy/BindedSwitch';
     //import Bar from '@windy/Bar';
     //import Scrollable from '@windy/Scrollable';
@@ -56,9 +66,11 @@
     const h1=1000*60*60;
 
     let maxAge=168; //hours in a week.
-    let reqAge=24;
+    let reqAge=9;
     let prevColor, prevMarker;
     let markers=[];
+    let modelSel="ecmwf", coordSel, ixSel;
+    let airdataAvail=false;
 
     const datapath="https://radiosonde.mah.priv.at/data/";
     let summaryFmt;
@@ -86,11 +98,7 @@
     let ageColorsInstance, ageColors,  getAgeColor;
 
     const initColors = () => {
-
         let ii=Math.floor(maxAge/(viridisStops.length-1));
-
-        console.log(ii);
-
         ageColorsInstance = Color.instance({
             ident: 'ageColors',
             steps: 1024,
@@ -98,13 +106,20 @@
         });
 
         ageColors = ageColorsInstance.getColor.call(ageColorsInstance);
-
         getAgeColor = age => {  //age in hours
             const [R, G, B] = ageColors.RGBA.call(ageColors, age);
             return `rgba(${R},${G},${B}, 1)`;
         };
     }
 
+    ////product switch
+    Switch.instance({
+        el:this.refs.selProduct,
+        initValue:"ecmwf",
+        onset: value=>{
+            modelSel=value;
+        }
+    });
 
 
 
@@ -174,7 +189,7 @@
 
         maxAge=Math.round(sum.properties.max_age/3600);
         $("#radiosonde-range").max=maxAge;
-        $("#radiosonde-range").value= maxAge - (reqAge = 24);
+        $("#radiosonde-range").value= maxAge - reqAge ;
 
         initColors();
 
@@ -203,21 +218,89 @@
                     prevMarker=e.target;
                     prevMarker.setStyle({color: markerSelectedColor});
 
+                    let [lon,lat,elev]=d.geometry.coordinates;
+                    let model="ecmwf";
+
+                    coordSel={lat,lon};
+
                     fetch(dataURI(d.properties.station_id,asc)).then(r=>r.json()).then(d=>{
-                        let ar = d.features.map(f=>{
-                            let p=f.properties;
-                                //console.log(p);
-                            let temp=p.temp-273.15;
-                            let dwpt=p.dewpoint-273.15;
-                            let hght=p.gpheight;
-                            let press=p.pressure;
-                            let wdir=windDirection(p.wind_u, p.wind_v);
-                            let wspd=Math.sqrt(p.wind_u*p.wind_u+p.wind_v+p.wind_v);
-                            let time=p.time;
-                            return {temp,dwpt,hght,press,wdir,wspd,time};
-                        });
-                        skewt.plot(ar)
-                    });
+                            let ar = d.features.map(f=>{
+                                let p=f.properties;
+                                let temp=p.temp-273.15;
+                                let dwpt=p.dewpoint-273.15;
+                                let hght=p.gpheight;
+                                let press=p.pressure;
+                                let wdir=0,wspd=0;
+                                if (p.wind_u && p.wind_v){
+                                    wdir=windDirection(p.wind_u, p.wind_v);
+                                    wspd=Math.sqrt(p.wind_u*p.wind_u+p.wind_v+p.wind_v);
+                                }
+                                let time=p.time;
+                                return {temp,dwpt,hght,press,wdir,wspd,time};
+                            });
+
+                            let midtime = 1000*(ar[ar.length-1].time + ar[0].time)/2;
+
+                            console.log(ar);
+                            skewt.plot(ar);
+                            return midtime;
+                    }).then(midtime=>{
+                        load('airData',{lat,lon,model:modelSel}).then(data=>{
+                            //find time
+                            let mindif=Infinity,ix;
+                            data.data.data.hours.forEach((h,i)=>{
+                                let d=Math.abs(h-midtime);
+                                if (d<mindif){
+                                    mindif=d; ix=i;
+                                }
+                            });
+
+                            if (ix || mindif < h1*3) {
+                                airdataAvail=true;
+                                //parse
+                                console.log(data);
+                                let ar2=[];
+                                let d=data.data.data;
+                                for (let p in d){
+                                    let prop=p.match(/(.*?)-(\d*?)h/);
+                                    if (prop){
+                                        if (prop[1]=="dewpoint"){
+                                            ar2.push({press:+prop[2], dwpt:d[p][ix]-273.15});
+                                        } else if (prop[1]=="gh"){
+                                            ar2.find(a=>a.press==+prop[2]).hght=d[p][ix];
+                                        } else if (prop[1]=="rh"){
+                                            ar2.find(a=>a.press==+prop[2]).rh=d[p][ix];
+                                        } else if (prop[1]=="temp"){
+                                            ar2.find(a=>a.press==+prop[2]).temp=d[p][ix]-273.15;
+                                        }  else if (prop[1]=="wind_u"){
+                                            ar2.find(a=>a.press==+prop[2]).u=d[p][ix];
+                                        } else if (prop[1]=="wind_v"){
+                                            ar2.find(a=>a.press==+prop[2]).v=d[p][ix];
+                                        }
+                                    }
+                                }
+                                ar2.forEach(e=>{
+                                    e.wdir=windDirection(e.u, e.v);
+                                    e.wspd=Math.sqrt(e.u*e.u+e.v*e.v);
+                                });
+
+                                ar2.push(ar2[0]);
+                                ar2.shift();
+                                ar2.reverse();
+
+
+                                console.log(ar2);
+
+                                skewt.plot(ar2,{add:true});
+
+                            } else {
+                                airdataAvail=false;
+                            }
+
+                        })
+
+                    })
+
                 })
             );
             markers[l-1].age = age;

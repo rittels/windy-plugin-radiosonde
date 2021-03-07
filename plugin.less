@@ -93,6 +93,38 @@
     width: @widthOfMyPlugin;
     height:100%;
 
+    table{
+        width:95%;
+        border-collapse: separate;
+        border-spacing:5px 2px;
+
+        tr{
+            height:15px;
+            td{
+                    text-align:left;
+
+                    &.select-product{
+                        text-align:center;
+                        border:1px solid rgba(0,0,0,0.3);
+                        border-radius:11px;
+                        height:22px;
+                        cursor:pointer;
+                        min-width:50px;
+                        &:hover{
+                            background-color:white;
+                        }
+
+                        &.selected{
+                            border-color:@lRed;
+                            color:white;
+                            background-color:@lRed;
+
+                        }
+                    }
+            }
+        }
+    }
+
     .desktab-heading{
         text-align:center;
         color:@red;
