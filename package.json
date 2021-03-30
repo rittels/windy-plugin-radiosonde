@@ -1,6 +1,6 @@
 {
   "name": "windy-plugin-radiosonde",
-  "version": "0.0.5",
+  "version": "0.0.841",
   "description": "day-night",
   "main": "dist/plugin.js",
   "scripts": {

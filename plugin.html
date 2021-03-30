@@ -1,22 +1,54 @@
 <plugin>
 
-<link rel="stylesheet" href="https://unpkg.com/skewt-plus/dist/skewt.css">
+<!--<link rel="stylesheet" href="https://unpkg.com/skewt-plus/dist/skewt.css">    -->
 <div class="sliding-x" data-ref="slidingX"></div>
 
-<div id="radiosonde-container" class="plugin-content" >
+<div id="radiosonde-container" class="plugin-content"  >
 
-    <div class="desktab-heading size-xl" ><b>Radiosonde</b></div>
-    <div class="mobile-title" >Radiosonde</div>
-    <div id="skewt-container" class="skew-t"></div>
+    <div class="desktab-heading size-xl" style="flex-grow:0;"><b>Radiosonde</b></div>
+    <div class="mobile-title" style="flex-grow:0;">Radiosonde</div>
+    <div class="page" data-ref="skewtPage">
+        <div id="skewt-container" class="skew-t noselect"></div>
+        <div class="settings" style="margin-top:10px">
+            <div class="head">
+                Available forecast model to compare:
+            </div>
+            <div data-ref="selProduct" style="min-height:30px;"><div data-ref="nomodel" style="pointer-events:none; cursor:auto; " class="select-product noselect">No Model available</div> </div>
+            <div style="min-height:30px; ">
+                <div style="display:inline-block;  margin-top:7px;">Highlight:</div>
+                <span data-ref="highlight"></span>
+            </div>
+            <div style="display:flex; justify-content:space-between;">
+                <div style="display:inline-block; line-height:28px">
+                    <span>Syn time:&nbsp;&nbsp;&nbsp;</span>
+                    <span data-ref="synTime"></span>
+                </div>
+                <div data-ref="showAscents" class="select-product" style="width:120px; float:right;">Show Ascents</div>
+            </div>
+            <div data-ref="syntimeRangeCont">
+                <input data-ref="syntimeRange" type="range" min="0"  max="100"  step="1">
+                <div data-ref="syntimeMarkers"></div>
+            </div>
 
-    <table class="settings" style="margin-top:10px">
-        <tr data-ref="selProduct">
-            <td>Compare model:</td>
-            <td data-do="set,ecmwf" class="select-product">ecmwf</td>
-            <td data-do="set,icon" class="select-product">icon</td>
-            <td data-do="set,gfs" class="select-product">gfs</td>
-        </tr>
-    </table>
+
+            <div class="head">Station detail:</div>
+            <div  style="border:1px solid rgba(127,127,127,0.3);  margin-bottom:10px;  padding:5px; border-radius:3px;">
+            <div data-ref="detail1"></div>
+            <div data-ref="detail2"></div>
+            </div>
+            <br><br>
+        </div>
+    </div>
+    <div class="page" style="display:none;"  data-ref="ascentsPage">
+        <div data-ref="ascentsContent" style="min-height:calc(100% - 25px);" ></div>
+        <div data-ref="ascentsClose" class="select-product" style="width:120px;  position:sticky; bottom:5px; float:right;  display:block">Close</div>
+    </div>
+
+
+
+
+
+
 
 </div>
 
@@ -36,6 +68,8 @@
     import store from '@windy/store';
     import allPlugins from '@windy/plugins';
     import Color from '@windy/Color';
+    import models from '@windy/models';
+    import lruCache from '@windy/lruCache';
 
     //import BindedCheckbox from '@windy/BindedCheckbox';
     import Switch from '@windy/Switch';
@@ -48,47 +82,136 @@
     import pluginDataLoader from '@windy/plugins/plugin-data-loader';
     import ib from './infobox.mjs';
 
-
-
-
     const load = pluginDataLoader({
         key: 'tqBdvHJjtNrGq4TrFzt9D5NDz9fIZSC8'
-        , plugin: 'windy-plugin-da'
+        , plugin: 'windy-plugin-radiosonde'
     });
 
     //import urls from '@windy/urls';
     //import http from '@windy/http';
 
+
+
+    let earliestAirDataTime;      //get earliest time where forecast data is avaialble,  with promise.all once summary loaded,  show only the markers with forecast avail
+
     const thisPlugin=this;
-    const skewt=new SkewT("#skewt-container");
+    const skewt=new SkewT("#skewt-container", rs.isMobileOrTablet);
+
+
+    let skewtCb=$('input[type="checkbox"]',$("#skewt-container"));
+    skewtCb.style.display="none";
+    let skewtCbT=$('.skewt-checkbox-text',$("#skewt-container"));
+    skewtCbT.classList.add("checkbox","inlined","off");
+    skewtCbT.addEventListener("click", () => {
+        skewtCb.click();
+        skewtCbT.classList.toggle("off");
+    });
+
 
     const dayMs=1000*60*60*24;
     const h1=1000*60*60;
+    const availProd=models.overlay2product.temp;
 
     let maxAge=168; //hours in a week.
     let reqAge=9;
-    let prevColor, prevMarker;
-    let markers=[];
-    let modelSel="ecmwf", coordSel, ixSel;
-    let airdataAvail=false;
+    let prevColor, selMarker;   //selMarker refers to the selected marker object.
+
+    let link2ts = false;
+
+    let markers=[];  //array containing all the markers,  and associated leaflet layers,  and index of current syn time selected
+    let prodSel="ecmwf", coordSel, ixSel;
+
+    let prodBtns={};
+    let prodData={};
+    let sondeData=[];
+
+    //use internal windy lruCache, to cache airdata and ascents.
+    let ascCache = new lruCache(200); //cache 200 ascents
+    let airDataCache = new lruCache(100);
 
     const datapath="https://radiosonde.mah.priv.at/data/";
     let summaryFmt;
 
     ////marker properties and colors
 
-    var markerOptions = {
-        radius: 8,
-        color:"white",
-        weight: 1,
-        opacity: 1,
-        fillOpacity: 0.7,
-        className: "context-menu-marker",
-        bubblingMouseEvents: false
-    };
+    //place markers in a custom pane that is ontop of labelslayer
+    //when picker is openened,  append to the picekr marker DOM element to the popup pane.
 
-    var markerSelectedColor = "OrangeRed";
+    let sondeMarkerPane = map.createPane("sondeMarkerPane");
+    sondeMarkerPane.style.zIndex=610;
 
+
+    const findNearestPoint=(e,ar)=>{  //use sondeData and e is latlng of event
+        let i=ar.reduce( (ac,n,i) => {
+            let r = (n.lat-e.lat)*(n.lat-e.lat)+(n.lng-e.lng)*(n.lng-e.lng);
+            return r<ac.r? {i,r}: ac;
+        }, {i:-1,r:Infinity}).i;
+        return ar[i];
+    }
+
+    const findNearestIndex=(e,ar)=>{
+        return ar.reduce( (ac,n,i) => {
+            let dlt = n.lat-e.lat, dln = n.lng-e.lng,  r = dlt*dlt+dln*dln;
+            return r<ac.r? {i,r}: ac;
+        }, {i:-1,r:Infinity}).i;
+    }
+
+    const findPointWithPressure=(p,ar)=>{
+        let i=ar.reduce( (ac,n,i) => {
+            let r = Math.abs(n.press-p);
+            return r<ac.r? {i,r}: ac;
+        }, {i:-1,r:Infinity}).i;
+        return ar[i];
+    }
+
+    skewt.setCallback(p=>{
+        let {lat,lng}=findPointWithPressure(p,sondeData);
+        if (lat!==void 0 && lng!==void 0) lineMarker.setLatLng({lat,lng});
+    });
+
+    const onGhostDrag=(latlng)=>{
+        if (selMarker.boatPath){       //if boat 1st check if not maybe closer to another boat position.
+            let i= findNearestIndex(latlng, selMarker.boatPath._latlngs)
+            if (selMarker.i!=i){
+                selMarker.i=i;
+                selMarker.circle.fire("click");
+                return;
+            }
+        }
+        if (sondeData) {
+            let n=findNearestPoint(latlng, sondeData);
+            lineMarker.setLatLng(n);
+            skewt.showTooltips();
+            skewt.move2P(n.press);
+        }
+    }
+
+    ////define markers
+    let ghostDiv = L.divIcon({className:"transparent-marker-container", html:'<div style="position:absolute; left:0px; top:0px; height:20px; width:20px; background-color:rgba(0,0,0,0);"></div>',  iconAnchor:[10,10], iconSize:[0,0]});
+    let ghostMarker = L.marker([0,0],{icon:ghostDiv,  zIndexOffset:5000,  draggable:true, pane:sondeMarkerPane})
+        .on("drag", e=>onGhostDrag(e.latlng))
+        .on("click", e=>{
+            onGhostDrag(map.mouseEventToLatLng(e.originalEvent)); //clicking only sends markers latlng and not click position.
+        })
+        .on("dragend",e=>{
+            //console.log("dragend",  e.latlng);
+            if (sondeData){
+                ghostMarker.setLatLng(findNearestPoint(lineMarker.getLatLng(), sondeData));
+            }
+        })
+        .addTo(map);
+
+    let markerDiv = L.divIcon({className:"transparent-marker-container",html:'<div style="position:absolute; left:0px; top:0px; border-radius:5px; height:5px; width:5px; background-color:black;"></div>',  iconAnchor:[3,3], iconSize:[0,0]});
+    let lineMarker = L.marker([0,0],{icon:markerDiv, zIndexOffset:3000,  pane:sondeMarkerPane}).addTo(map);
+
+    ////to debug
+    //let temp1 = L.circleMarker([0,0],{radius:5, weight:2, color:"red"}).addTo(map)
+    //let temp2=   L.circleMarker([0,0],{radius:5, weight:2, color:"green"}).addTo(map)
+
+
+
+
+    ////colors
     var viridisStops = ['#440154', '#482777', '#3F4A8A', '#31678E', '#26838F', '#1F9D8A', '#6CCE5A', '#B6DE2B', '#FEE825'];
 
     function hex2RgbA(a){
@@ -104,29 +227,93 @@
             steps: 1024,
             default: viridisStops.slice(0).reverse().map((a,i)=>[i*ii,hex2RgbA(a)])
         });
-
         ageColors = ageColorsInstance.getColor.call(ageColorsInstance);
-        getAgeColor = age => {  //age in hours
+        getAgeColor = (age, opacity) => {  //age in hours
             const [R, G, B] = ageColors.RGBA.call(ageColors, age);
-            return `rgba(${R},${G},${B}, 1)`;
+            return `rgba(${R},${G},${B}, ${opacity})`;
         };
     }
 
     ////product switch
+    availProd.forEach(p=>{
+        let td=document.createElement("div");
+        td.classList.add("select-product","hidden");
+        td.dataset.do=`set,${p}`;
+        td.innerHTML=p;
+        this.refs.selProduct.appendChild(td);
+        prodBtns[p]=td;
+        prodData[p]=[];
+    })
+
     Switch.instance({
         el:this.refs.selProduct,
         initValue:"ecmwf",
         onset: value=>{
-            modelSel=value;
+            skewt.remove(prodData[prodSel]);
+            prodSel=value;
+            skewt.plot(prodData[prodSel],{add:true});
+            highlightswitch.set("Radiosonde");
         }
     });
 
+    ["Radiosonde","Forecast"].forEach(p=>{
+        let td=document.createElement("div");
+        td.classList.add("select-product");
+        if(p=="Forecast"){
+            td.classList.add("hidden");
+            this.refs.selectForecast=td;
+            console.log(this.refs.selectForecast)
+        }
+        td.dataset.do=`set,${p}`;
+        td.innerHTML=p;
+        this.refs.highlight.appendChild(td);
+    })
 
+    let highlightswitch=Switch.instance({
+        el:this.refs.highlight,
+        initValue:"Radiosonde",
+        onset: value=>{
+            skewt.selectSkewt(value=="Radiosonde"?sondeData:prodData[prodSel]);
+        }
+    });
+
+    this.refs.showAscents.addEventListener("click", e=>{
+        this.refs.ascentsPage.style.display="block";
+        this.refs.skewtPage.style.display="none";
+    });
+
+    this.refs.ascentsClose.addEventListener("click", e=>{
+        this.refs.ascentsPage.style.display="none";
+        this.refs.skewtPage.style.display="block";
+    });
+
+    this.refs.syntimeRange.addEventListener("input",e=>{
+        let {id,ascAr,min,max,dif,lat,lon,rangeMarkerAr,marker}=timeRangeVals;
+        if(!ascAr || !ascAr.length) return;
+
+        let r=this.refs.syntimeRange;
+
+        let n=min + dif * r.value/100;
+        let i=ascAr.reduce((a,b,i) => Math.abs((b.syn_timestamp) - n) < Math.abs(a.v-n)?{v:b.syn_timestamp,i}:a, {v:-Infinity,i:-1}).i;
+
+        if (i!=marker.i){
+            marker.i=i;
+            rangeMarkerAr.forEach((m,ii)=>{
+                m.classList[i==ii?"add":"remove"]("ascent-marker-highlight");
+            })
+
+            //console.log(ascAr[i].syn_timestamp.toJSON());
+            this.refs.synTime.innerHTML=new Date(ascAr[i].syn_timestamp*1000).toJSON().slice(0,16)+"Z";
+            plotSonde(id,ascAr[i]);
+        }
+    });
 
     ////infobox wiht age slider
     this.refs.infobox = ib(
         `
         <div id="open-radiosonde-plugin" class='radiosonde-button inlined' data-icon='d' >Radiosonde</div>
+        <div id="radiosonde-zoom"  class='radiosonde-button hidden'>Zoom in on marker</div>
+        <div id="radiosonde-link-timestamp" class='radiosonde-button'>Click to link Calendar</div>
         <div id="radiosonde-age-value" class='radiosonde-button'></div>
         <div id="radiosonde-range-container">
             <input id="radiosonde-range" type="range" min="0" max="168" step="1">
@@ -137,22 +324,97 @@
         , rs.isMobile?true:false  //true = hide this box when plugin opens
         //optionally send fx
     )
+
+    bcast.on("pluginOpened",e=>{if (e==this.ident) $("#open-radiosonde-plugin").classList.add("hidden") });
+    bcast.on("pluginClosed",e=>{if (e==this.ident) $("#open-radiosonde-plugin").classList.remove("hidden") });
+    $("#radiosonde-link-timestamp").addEventListener("click",()=>{
+        link2ts=true;
+        $("#radiosonde-age-value").classList.add("grey");
+        $("#radiosonde-age-value").innerHTML="Click to set age";
+        $("#radiosonde-link-timestamp").classList.remove("grey");
+        $("#radiosonde-link-timestamp").innerHTML="Linked to Calendar";
+        $("#radiosonde-range-container").classList.add("hidden");
+        handleTs(store.get("timestamp"));
+    });
+    $("#radiosonde-age-value").addEventListener("click",()=>{
+        link2ts=false;
+        handleAgeRangeInput();
+        $("#radiosonde-age-value").classList.remove("grey");
+        $("#radiosonde-link-timestamp").classList.add("grey");
+        $("#radiosonde-link-timestamp").innerHTML="Click to link Calendar";
+        $("#radiosonde-age-value").innerHTML=`Newer than ${reqAge} hrs`;
+        $("#radiosonde-range-container").classList.remove("hidden");
+    })
+    $("#radiosonde-zoom").addEventListener("click",()=>{
+        if (selMarker)  map.setView(selMarker.circle._latlng,7);
+    })
+
     $("#radiosonde-range-container").style.background=`linear-gradient(90deg,${viridisStops.join(",")})`;
+
+
+    const removeMarker=(m)=>{
+        m.circle.remove();
+        if (m.line)      m.line.remove();
+        if (m.ghostline) m.ghostline.remove();
+        if (m.boatPath)  m.boatPath.remove();
+        if (m.boatPathGhost)  m.boatPathGhost.remove();
+        if (m==selMarker){
+            console.log("selected Marker removed");
+            skewt.clear();
+            skewt.hideTooltips();
+            selMarker=null;
+            $("#radiosonde-zoom").classList.add("hidden");
+        }
+
+    }
+    const addMarker=(m)=>{
+        m.circle.addTo(map);
+        if (m.line)      m.line.addTo(map);
+        if (m.ghostline) m.ghostline.addTo(map);
+        if (m.boatPath)  m.boatPath.addTo(map);
+        if (m.boatPathGhost)  m.boatPathGhost.addTo(map);
+    }
 
     const handleAgeRangeInput = () => {
         reqAge= maxAge - $("#radiosonde-range").value;
         $("#radiosonde-age-value").innerHTML =  `Newer than ${reqAge} hrs`;
         markers.forEach(m=>{
             if(m.age<reqAge){
-                m.addTo(map)
+                addMarker(m);
             } else {
-                m.remove();
+                removeMarker(m);
             }
         });
     }
 
-    $("#radiosonde-range").addEventListener("input", handleAgeRangeInput);
+    const handleTs = ts => {
+        if (!link2ts) return;
+        //console.log(new Date(ts));
+        markers.forEach(m=>{
+            let found=null;
+            if (m.ascAr[0].syn_timestamp > ts/1000 - 90*60){
+                for (let i=0; found==null && i<m.ascAr.length; i++){
+                //m.ascAr.forEach(({syn_timestamp})=>{
+                    let d= Math.abs(m.ascAr[i].syn_timestamp-ts/1000);
+                    if (d< 90*60) {
+                        //console.log(m.id,i, d);
+                        found=i;
+                    }
+                }
+            }
+            //console.log(found);
+            if (found!==null) {
+                m.i=found;
+                addMarker(m);
 
+            } else {
+                removeMarker(m);
+            }
+        })
+    }
+    store.on("timestamp", handleTs);
+
+    $("#radiosonde-range").addEventListener("input", handleAgeRangeInput);
 
     //// draw circles
 
@@ -165,12 +427,46 @@
 
     function dataURI(sid, ascent) {
         var ts = new Date(ascent.syn_timestamp * 1000).toJSON();
+        if (summaryFmt < 4) {
+            return datapath +
+                source_map[ascent.source] +
+                sid.substring(0, 2) + "/" +
+                sid.substring(2, 5) + "/" +
+                sid + "_" +
+                ts.substring(0, 4) +
+                ts.substring(5, 7) +
+                ts.substring(8, 10) + "_" +
+                ts.substring(11, 13) +
+                ts.substring(14, 16) +
+                ts.substring(17, 19) +
+                ".geojson";
+        };
+        if (summaryFmt < 6) {
+            return datapath +
+                source_map[ascent.source] +
+                sid.substring(0, 2) + "/" +
+                sid.substring(2, 5) + "/" +
+
+                ts.substring(0, 4) + "/" +
+                ts.substring(5, 7) + "/" +
+
+                sid + "_" +
+                ts.substring(0, 4) +
+                ts.substring(5, 7) +
+                ts.substring(8, 10) + "_" +
+                ts.substring(11, 13) +
+                ts.substring(14, 16) +
+                ts.substring(17, 19) +
+                ".geojson";
+        }
         return datapath +
-            source_map[ascent.source] +
+            ascent.repfmt + "/" +
             sid.substring(0, 2) + "/" +
             sid.substring(2, 5) + "/" +
+
             ts.substring(0, 4) + "/" +
             ts.substring(5, 7) + "/" +
+
             sid + "_" +
             ts.substring(0, 4) +
             ts.substring(5, 7) +
@@ -181,134 +477,433 @@
             ".geojson";
     }
 
+    function hotfix(geojson) {
+
+        // bring legacy detail files up to current fmt -
+        // fix geojson objects in-place depending on various bug conditions:
+
+        var fix_u_v = ((geojson.properties.repfmt === 'fm35') &&
+            (geojson.properties.fmt < 5));
+
+        var fix_pressure = ((geojson.properties.repfmt === 'fm94') &&
+            (geojson.properties.fmt < 2));
+
+        // walk the object and apply any fixes known for this version
+        for (var i in geojson.features) {
+            var p = geojson.features[i].properties;
+
+            // pre-V2 BUFR files had pressure in Pa
+            // make it hPa
+            if (fix_pressure) {
+                p.pressure = p.pressure * 0.01;
+            }
+
+            // pre-V5 netCDF files had u,v in knots
+            // make it m/s
+            if (fix_u_v) {
+                if (typeof p.wind_u !== "undefined") {
+                    p.wind_u = p.wind_u / 1.94384;
+                }
+                if (typeof p.wind_v !== "undefined") {
+                    p.wind_v = p.wind_v / 1.94384;
+                }
+            }
+        }
+        // set the fmt to the current fmt so this is
+        // idempotent
+        geojson.properties.fmt = summaryFmt;
+
+        //console.log("fix_u_v", fix_u_v);
+        //console.log("fix_pressure", fix_pressure);
+    }
+
     const windDirection = (x,y) => ((2*Math.PI + Math.atan2(x,y))*180/Math.PI)%360;
 
+    const geodesicDir = (p1,p2) =>{
+        let tr=Math.PI/180;
+        let lat1=p1.lat*tr, lat2=p2.lat*tr, lon1=(p1.lon||p1.lng)  *tr, lon2=(p2.lon||p2.lng)  *tr;
+        console.log(lat1,lon1,lat2,lon2);
+            const y = Math.sin(lon2-lon1) * Math.cos(lat2);
+            const x = Math.cos(lat1)*Math.sin(lat2) -  Math.sin(lat1)*Math.cos(lat2)*Math.cos(lon2-lon1);
+            const theta = Math.atan2(y, x);
+            let dir = (theta/tr + 360) % 360;
+            console.log(dir);
+        return dir;
+    }
+
+
+    const makeAirKey=(lat,lon,model,reftime)=>{
+        let k=`${lat.toFixed(2)}_${lon.toFixed(2)}_${model}_${reftime}`;
+        //console.log(k);
+        return k;
+    }
+
+    const plotSonde=(id, asc, onlyPath=false)=>{ //onlyPath==true,  fetch the path and atttach to the marker,  but do not plot the sonde
+
+         //check if boat,  then update marker positon and dir;
+         if (selMarker.boatPath){
+            let {i,ascAr, circle} = selMarker;
+            circle.setLatLng([ascAr[i].lat,ascAr[i].lon]);
+            if(i==ascAr.length-1) i-=1;
+            circle._icon.firstElementChild.style.transform=`rotate(${ geodesicDir(ascAr[i+1], ascAr[i])}deg)`;
+        }
+
+        let key=dataURI(id,asc);
+
+        new Promise((res,rej)=>{
+            let val= ascCache.get(key);
+            if (val){
+                res(val);
+            } else {
+                res(fetch(key)
+                    .then(r=>r.json())
+                    .then(d =>{
+                        ascCache.put(key,d);
+                        return d;
+                    })
+                )
+            }
+        }).then(d=>{
+
+            hotfix(d);//temp an pressure fix
+            //console.log(d.properties);
+
+            if (!onlyPath){
+                let str="More Detail: <br><div style='font-size:8px'>";
+                for (let p in d.properties){
+                    str+=`<b>&nbsp;&nbsp;${p}:</b> ${d.properties[p]}<br>`
+                }
+                str+="</div>";
+                this.refs.detail2.innerHTML=str;
+
+                $("#radiosonde-zoom").classList.remove("hidden");
+            }
+
+            //console.log(d.features);
+            let ar = d.features.map(f=>{
+                let p=f.properties;
+                let temp=p.temp-273.15;
+                let dwpt=p.dewpoint-273.15;
+                let hght=p.gpheight;
+                let press=p.pressure;
+                let wdir=0,wspd=0;
+                if (p.wind_u && p.wind_v){
+                    wdir=windDirection(p.wind_u, p.wind_v);
+                    wspd=Math.sqrt(p.wind_u*p.wind_u+p.wind_v+p.wind_v);
+                }
+                let time=p.time;
+                //console.log(f.geometry.coordinates);
+                let [lng,lat] = f.geometry.coordinates;
+                return {lng,lat,temp,dwpt,hght,press,wdir,wspd,time};
+            });
+
+            //let midtime = 1000*(ar[ar.length-1].time + ar[0].time)/2;
+            let syntime=d.properties.syn_timestamp*1000;
+
+            /////draw polyline
+            let marker = markers.find(m=>m.id==id);
+            //console.log(markers, marker);
+
+            marker.data=ar;
+
+            if (!marker.line) {
+                marker.line = L.polyline(ar, {interactive:false, color:'white', weight:1, pane:sondeMarkerPane }).addTo(map);
+                marker.ghostline = L.polyline(ar, {interactive:true,  bubblingMouseEvents:false,  color:'rgba(255,255,255,0.1)', weight:13, pane:sondeMarkerPane })
+                .addTo(map)
+                .bringToFront()
+                .on('click', e=>{
+                    //console.log(e);
+                    if (sondeData!=marker.data){
+                        marker.circle.fire("click");
+                    }
+                    ghostMarker.setLatLng(e.latlng);
+                    lineMarker.setLatLng(e.latlng);
+                });
+            } else { //alreayd created set coords.
+                marker.line.setLatLngs(ar);
+                marker.ghostline.setLatLngs(ar);
+            }
+
+            marker.line.bringToFront();
+            marker.ghostline.bringToFront();
+
+
+            if(!onlyPath){
+                sondeData=marker.data;
+                ghostMarker.setLatLng(sondeData[0]);
+                lineMarker.setLatLng(sondeData[0]);
+                skewt.clear();  //just in case,  should not be necessary
+                skewt.plot(marker.data);
+                sondeData=marker.data;
+                return {syntime,lat:ar[0].lat,lon:ar[0].lng};
+            } else return {};
+
+        }).then(({syntime,lat,lon})=>{
+
+
+            if (!syntime) return;
+            //console.log(prodSel);
+
+            let pp=models.getPointProducts(coordSel);
+            let pointprods = pp.filter(e=>availProd.indexOf(e)!=-1);
+            if (pointprods.indexOf("icon")==-1)pointprods.push("icon");
+            /// if iconEu available,  "icon" is excluded,  since I think iconEU is perhaps better.  Add it anyway.
+
+            for (let p in prodBtns) {
+                prodBtns[p].classList.add("hidden");
+                prodData[p]=[];//clear all previous data arrays;
+            }
+
+            //this.refs.highlight.classList.add("hidden");
+            this.refs.selectForecast.classList.add("hidden");
+            this.refs.nomodel.classList.remove("hidden");
+            highlightswitch.set("Radiosonde");
+
+            const getNextProd=(prodi)=>{
+
+                let key = makeAirKey(lat,lon,pointprods[prodi]);
+
+                new Promise((res,rej)=>{
+                    let val= airDataCache.get(key);
+                    if (val){   //must still validate refTime.
+                        res(val);
+                    } else {
+                        res(
+                            load('airData',{lat,lon,model:pointprods[prodi]})
+                            .then(d =>{
+                                airDataCache.put(key,d);
+                                return d;
+                            })
+                        )
+                    }
+                })
+                .then(data=>{
+
+                    //find time
+                    let mindif=Infinity,ix;
+                    let lasth=0;
+                    data.data.data.hours.forEach((h,i)=>{
+                        if(i==0)console.log(new Date(h));
+                        let d=Math.abs(h-syntime);
+                        if (d<mindif){
+                            mindif=d; ix=i;
+                        }
+                    });
+
+                    if (ix || mindif < h1*3) {
+
+                        let ar2=[];
+                        let d=data.data.data;
+                        for (let p in d){
+                            let prop=p.match(/(.*?)-(\d*?)h/);
+                            if (prop){
+                                if (prop[1]=="dewpoint"){
+                                    ar2.push({press:+prop[2], dwpt:d[p][ix]-273.15});
+                                } else if (prop[1]=="gh"){
+                                    ar2.find(a=>a.press==+prop[2]).hght=d[p][ix];
+                                } else if (prop[1]=="rh"){
+                                    ar2.find(a=>a.press==+prop[2]).rh=d[p][ix];
+                                } else if (prop[1]=="temp"){
+                                    ar2.find(a=>a.press==+prop[2]).temp=d[p][ix]-273.15;
+                                }  else if (prop[1]=="wind_u"){
+                                    ar2.find(a=>a.press==+prop[2]).u=d[p][ix];
+                                } else if (prop[1]=="wind_v"){
+                                    ar2.find(a=>a.press==+prop[2]).v=d[p][ix];
+                                }
+                            }
+                        }
+                        ar2.forEach(e=>{
+                            e.wdir=windDirection(e.u, e.v);
+                            e.wspd=Math.sqrt(e.u*e.u+e.v*e.v);
+                        });
+
+                        ar2.sort((a,b)=>b.press-a.press);
+                        prodData[pointprods[prodi]]=ar2;
+
+                        prodBtns[pointprods[prodi]].classList.remove("hidden");
+                        this.refs.selectForecast.classList.remove("hidden");
+
+                        this.refs.nomodel.classList.add("hidden");
+                        //console.log(ar2);
+
+                        if (prodSel == pointprods[prodi])  skewt.plot(ar2,{add:true});
+
+                    } else {
+                        //airdataAvail=false;
+                    }
+
+                    if (++prodi<pointprods.length) getNextProd(prodi);
+                }).catch(e=>{
+                    console.log("ERROR",e)
+                    if (++prodi<pointprods.length) getNextProd(prodi);
+                });
+            }
+            getNextProd(0);
+        })
+    }
+
+
+    let timeRangeVals={};
+
+
     ////load all the summary:
-    fetch(datapath+"summary.geojson").then(r=>r.json()).then(sum=>{
+
+
+    let summaryPromise = fetch(datapath+"summary.geojson").then(r=>r.json()).then(sum=>{
         summaryFmt = sum.properties.fmt;
 
-        maxAge=Math.round(sum.properties.max_age/3600);
-        $("#radiosonde-range").max=maxAge;
-        $("#radiosonde-range").value= maxAge - reqAge ;
+        sum.features.forEach(f=>{
+            if(f.geometry.type!="Point")console.log(f.geometry.type);
+            let a=f.properties.ascents;
+            if(a[0].lat!==void 0){
+                console.log(a);
+                let latdif=a[0].lat-a[a.length-1].lat;
+                let lngdif=a[0].lon-a[a.length-1].lon;
+                console.log(f.properties.name,latdif,lngdif);
+            }
+        });
 
         initColors();
 
         sum.features.forEach(d=>{
+
+        console.log(d);
+
             let [lng,lat]=d.geometry.coordinates;
 
-            //find newest ascent,  not sure if needed,  but jst in case
-            /*
-            let iNewestAsc;
-            let newest=-Infinity;
-            d.properties.ascents.forEach((a,i)=>{
-                if (a.syn_timestamp>newest){
-                    newest=a.syn_timestamp;
-                    iNewestAsc=i;
-                }
-            }); */
+            let ascAr = d.properties.ascents;
 
-            let asc=d.properties.ascents[0];
-            let age= (Date.now()/1000 - asc.syn_timestamp)/3600;
-            markerOptions.color=getAgeColor(age);
-            let l = markers.push(
-                L.circleMarker([lat,lng],markerOptions).addTo(map).on('click',e=>{
+            let age= (Date.now()/1000 - ascAr[0].syn_timestamp)/3600;
+
+            let isBoat = ascAr[0].lat !== void 0  && ascAr.length > 1;
+
+            let sondeDivIcon;
+
+            if (isBoat) {
+                let dir  = geodesicDir(ascAr[1], ascAr[0]);
+                sondeDivIcon=L.divIcon({className:"transparent-marker-container",
+                    html:`
+                        <svg viewbox="0 0 20 20" class="sonde-marker-icon boat"
+                            style="fill:${getAgeColor(age,0.5)}; stroke:black;   stroke-width: ${ascAr[0].repfmt=='fm94'?2:1}; transform:rotate(${dir}deg)">
+                        >
+                            <path d="M10 0 L14 5 L14 18 L12 20 L8 20 L6 18 L6 5 Z"></path>
+                            <path stroke-width="1" d="M8 10 L12 10 L12 14 L8 14 Z"></path>
+                        </svg>
+                    `,
+                    iconAnchor:[10,10], iconSize:[20,20]
+                });
+            } else {
+                sondeDivIcon=L.divIcon({className:"transparent-marker-container",
+                html:`
+                    <div    class="sonde-marker-icon"
+                            style="background-color:${getAgeColor(age,0.5)}; border-color:black;   border-width: ${ascAr[0].repfmt=='fm94'?2:0.8}px;">
+                    </div>`,
+                     iconAnchor:[8,8], iconSize:[15,15]
+                });
+            }
+
+
+
+            //console.log(sondeDivIcon);
+
+            let marker={
+                id: d.properties.station_id,
+
+                circle: L.marker([lat,lng],{icon:sondeDivIcon, pane:sondeMarkerPane}).addTo(map).on('click',e=>{
+
+                    console.log(marker.id,  marker.i,  ascAr[0]);
+
                     thisPlugin.open();
-                    if (prevMarker && prevColor) prevMarker.setStyle({color: prevColor});
-                    prevColor=e.target.options.color;
-                    prevMarker=e.target;
-                    prevMarker.setStyle({color: markerSelectedColor});
+
+                    if (selMarker && selMarker.circle &&  selMarker.circle._icon){
+                        selMarker.circle._icon.firstElementChild.classList.remove("active-marker");
+                    }
+                    selMarker=marker;//e.target;
+                    selMarker.circle._icon.firstElementChild.classList.add("active-marker");
 
                     let [lon,lat,elev]=d.geometry.coordinates;
-                    let model="ecmwf";
 
-                    coordSel={lat,lon};
+                    let str="";
+                    for (let p in d.properties){
+                        if (p!="ascents")  str+= `&nbsp;&nbsp;<b>${p}:</b> ${d.properties[p]}<br>`;
+                    }
+                    this.refs.detail1.innerHTML=str;
 
-                    fetch(dataURI(d.properties.station_id,asc)).then(r=>r.json()).then(d=>{
-                            let ar = d.features.map(f=>{
-                                let p=f.properties;
-                                let temp=p.temp-273.15;
-                                let dwpt=p.dewpoint-273.15;
-                                let hght=p.gpheight;
-                                let press=p.pressure;
-                                let wdir=0,wspd=0;
-                                if (p.wind_u && p.wind_v){
-                                    wdir=windDirection(p.wind_u, p.wind_v);
-                                    wspd=Math.sqrt(p.wind_u*p.wind_u+p.wind_v+p.wind_v);
-                                }
-                                let time=p.time;
-                                return {temp,dwpt,hght,press,wdir,wspd,time};
-                            });
+                    let
+                        id=d.properties.station_id,
+                        rangeMarkerAr=[],
+                        min = ascAr[ascAr.length-1].syn_timestamp,
+                        max = ascAr[0].syn_timestamp,
+                        dif = max - min;
 
-                            let midtime = 1000*(ar[ar.length-1].time + ar[0].time)/2;
+                    this.refs.ascentsContent.innerHTML="";
+                    this.refs.syntimeMarkers.innerHTML="";
 
-                            console.log(ar);
-                            skewt.plot(ar);
-                            return midtime;
-                    }).then(midtime=>{
-                        load('airData',{lat,lon,model:modelSel}).then(data=>{
-                            //find time
-                            let mindif=Infinity,ix;
-                            data.data.data.hours.forEach((h,i)=>{
-                                let d=Math.abs(h-midtime);
-                                if (d<mindif){
-                                    mindif=d; ix=i;
-                                }
-                            });
-
-                            if (ix || mindif < h1*3) {
-                                airdataAvail=true;
-                                //parse
-                                console.log(data);
-                                let ar2=[];
-                                let d=data.data.data;
-                                for (let p in d){
-                                    let prop=p.match(/(.*?)-(\d*?)h/);
-                                    if (prop){
-                                        if (prop[1]=="dewpoint"){
-                                            ar2.push({press:+prop[2], dwpt:d[p][ix]-273.15});
-                                        } else if (prop[1]=="gh"){
-                                            ar2.find(a=>a.press==+prop[2]).hght=d[p][ix];
-                                        } else if (prop[1]=="rh"){
-                                            ar2.find(a=>a.press==+prop[2]).rh=d[p][ix];
-                                        } else if (prop[1]=="temp"){
-                                            ar2.find(a=>a.press==+prop[2]).temp=d[p][ix]-273.15;
-                                        }  else if (prop[1]=="wind_u"){
-                                            ar2.find(a=>a.press==+prop[2]).u=d[p][ix];
-                                        } else if (prop[1]=="wind_v"){
-                                            ar2.find(a=>a.press==+prop[2]).v=d[p][ix];
-                                        }
-                                    }
-                                }
-                                ar2.forEach(e=>{
-                                    e.wdir=windDirection(e.u, e.v);
-                                    e.wspd=Math.sqrt(e.u*e.u+e.v*e.v);
-                                });
-
-                                ar2.push(ar2[0]);
-                                ar2.shift();
-                                ar2.reverse();
-
-
-                                console.log(ar2);
-
-                                skewt.plot(ar2,{add:true});
-
-                            } else {
-                                airdataAvail=false;
-                            }
-
+                    ascAr.forEach((a,i)=>{
+                        let dv=document.createElement("div");
+                        dv.classList.add("prevAscent");
+                        dv.innerHTML=new Date(a.syn_timestamp*1000).toJSON();
+                        this.refs.ascentsContent.appendChild(dv);
+                        dv.addEventListener("click",e=>{
+                            plotSonde(d.properties.station_id,a);
+                            this.refs.ascentsClose.click();
                         })
+
+
+                        //syn-time range:
+                        let mrkr= document.createElement("div");
+                        mrkr.classList.add("ascent-range-marker", a.repfmt);
+                        if(i==marker.i) mrkr.classList.add("ascent-marker-highlight");
+                        mrkr.style.left=100*(a.syn_timestamp-min)/dif+"%";
+
+                        this.refs.syntimeMarkers.appendChild(mrkr);
+                        rangeMarkerAr.push(mrkr);
 
                     })
 
-                })
-            );
-            markers[l-1].age = age;
-           // console.log(markers);
-        });
+                    timeRangeVals={id, ascAr, min, max, dif, lat, lon, rangeMarkerAr, marker};
 
-        handleAgeRangeInput();
+                    coordSel={lat,lon};
+                    plotSonde(id, marker.ascAr[marker.i]);
+                }),
+                age,
+                ascAr,  //ascents in summary
+                boatPath: !isBoat?null:
+                    L.polyline(ascAr,{color:"white", weight:1, opacity:0.6, bubblingMouseEvents:false, interactive:false, }).addTo(map),
+                boatPathGhost: !isBoat?null:
+                    L.polyline(ascAr,{color:"white", weight:10, opacity:0, bubblingMouseEvents:false, interactive:true, }).addTo(map)
+                        .on("click",e=>{
+                            console.log(e);
+                            marker.circle.fire("click");
+                            onGhostDrag(e.latlng);
+                        }),
+                i:0
+            }
+
+
+
+
+
+            markers.push(marker);
+
+        });
     });
+
+    let airDataTimePromise =  load('airData',{model:"ecmwf",lat:0,lon:0}).then(d=>{
+        earliestAirDataTime=d.data.data.hours[0] - 90*60*1000;
+        reqAge = (Date.now() - earliestAirDataTime) / 3600000;
+        return reqAge;
+    });
+
+    //once summary loaded and airDataStart has loaded:
+    Promise.all([airDataTimePromise,summaryPromise]).then(()=>{
+        $("#radiosonde-range").max= maxAge;
+        $("#radiosonde-range").value = maxAge - reqAge;
+        //markers.forEach(m=>{
+       //     if (m.ascAr[0].syn_timestamp>earliestAirDataTime/1000) m.circle._icon.firstElementChild.style.borderStyle="groove";
+       // })
+        handleAgeRangeInput();
+    })
 
 
     /////Bottom slide //I changed it so that the plugin top can be moved down.
@@ -343,6 +938,17 @@
         let {top,bottom,left,right}=document.getElementById("tooltipRect").getBoundingClientRect();
         if (x>left && x<right && y>top && y<bottom) e.preventDefault();
     }, true);
+
+
+    picker.on("pickerOpened", ()=>{
+        if(!rs.isMobile)$(".leaflet-popup-pane").appendChild($(".picker-content").parentElement);
+    })
+
+
+    document.onkeypress=k=>{
+        console.log(k.key);
+
+    }
 
 
 </script>

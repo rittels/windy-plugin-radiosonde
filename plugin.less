@@ -1,4 +1,5 @@
 @import 'dev/variables.less';
+@import 'C:\Users\Chris\Documents\Progs\skewt\skewt\src\skewt.less';
 
 @yellow:   #fff3e1;
 @red: rgba(157,3,0,1);
@@ -46,6 +47,35 @@
     border-radius: 8px;
     border:1px solid rgba(0,0,0,0.7);
     pointer-events:auto;
+    cursor:pointer;
+    &.hidden{
+            display:none;
+            pointer-events:none;
+    }
+    &.grey{
+        opacity:0.7;
+    }
+
+}
+
+.skew-t{
+    .controls .buttons{
+        background-color:transparent;
+        border:1px solid rgba(0,0,0,0.3);
+        &.clicked{
+             border-color:@lRed;
+             color:white;
+             background-color:@lRed;
+             &:hover{
+                background-color:@lRed;
+             }
+
+        }
+
+        &:hover{
+            background-color:white;
+        }
+    }
 }
 
 #radiosonde-range-container{
@@ -93,41 +123,48 @@
     width: @widthOfMyPlugin;
     height:100%;
 
-    table{
+    .settings{
         width:95%;
-        border-collapse: separate;
-        border-spacing:5px 2px;
-
-        tr{
-            height:15px;
-            td{
-                    text-align:left;
-
-                    &.select-product{
-                        text-align:center;
-                        border:1px solid rgba(0,0,0,0.3);
-                        border-radius:11px;
-                        height:22px;
-                        cursor:pointer;
-                        min-width:50px;
-                        &:hover{
-                            background-color:white;
-                        }
-
-                        &.selected{
-                            border-color:@lRed;
-                            color:white;
-                            background-color:@lRed;
-
-                        }
-                    }
-            }
+        height:15px;
+        text-align:left;
+        .head{
+            margin-top:5px;
+            font-size:12px;
         }
     }
+
+    .select-product{
+        display:inline-block;
+        pointer-events:auto;
+        text-align:center;
+        border:1px solid rgba(0,0,0,0.3);
+        border-radius:11px;
+        height:22px;
+        cursor:pointer;
+        min-width:50px;
+        padding:2px 5px;
+        margin:4px;
+        &:hover{
+            background-color:white;
+        }
+
+        &.selected{
+            border-color:@lRed;
+            color:white;
+            background-color:@lRed;
+        }
+        &.hidden{
+            display:none;
+            pointer-events:none;
+        }
+    }
+
+
 
     .desktab-heading{
         text-align:center;
         color:@red;
+        margin-bottom:5px;
     }
 
     .closing-x{
@@ -141,11 +178,17 @@
     }
 
     .plugin-content {
+        display:flex;
+        flex-direction:column;
         font-size:11px;
         padding:3px;
         .heading{
             margin-bottom:5px;
         }
+        .page{
+            flex-grow:1;
+        }
+
         .section{
             margin-left:10px;
         }
@@ -173,8 +216,96 @@
                     }
                 }
             }
+
+        }
+
+        .prevAscent{
+            cursor:pointer;
+            &:hover{
+                font-weight:bold;
+            }
+
         }
     }
+
+    [data-ref='syntimeRangeCont']{
+        position:relative;
+        box-sizing:border-box;
+        width:100%;
+        border:1px solid rgba(127,127,127,0.5);
+        border-radius:2px;
+        height:30px;
+        padding:0px 5px;
+        [data-ref='syntimeMarkers']{
+            box-sizing:border-box;
+            position:absolute;
+            width:calc(100% - 10px);
+            height:100%;
+            //margin:0px 5px;
+            pointer-events:none;
+            .ascent-range-marker{
+                box-sizing:border-box;
+                height:100%;
+                top:0px;
+                //background-color:rgba(128,128,128,0.5);
+                width:2px;
+                padding:0px;
+                margin-left:-1px;
+                position:absolute;
+                border:1px solid transparent;
+                background-clip: content-box;
+                pointer-events:none;
+                &.fm35{
+                    background-color:orange;
+                    opacity:0.6;
+                }
+                &.fm94{
+                    background-color:blue;
+                    opacity:0.6  ;
+                }
+
+                &.ascent-marker-highlight{
+                    //background-color:green;
+                    width:6px;
+                    margin-left:-3px;
+                    opacity:1;
+
+                }
+            }
+        }
+
+    }
+
+    [data-ref='syntimeRange']{
+        -webkit-appearance: none;
+        background-color:transparent;
+        //margin:0px 5px;
+        position:absolute;
+        width:calc(100% - 10.5px);
+        height:calc(100% - 0.5px);
+        &::-webkit-slider-runnable-track {
+            -webkit-appearance: none;
+            //background-color:transparent;
+            height:100%;
+        }
+        &::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height:100%;
+            width:1px;
+            background-color:rgba(128,128,128,0.2);
+            border:0px;
+        }
+        &:focus {
+            outline: none;
+        }
+
+    }
+
+
+
+
+
+
 
 
 
@@ -342,4 +473,32 @@
     #open-in-app{
         display:none;
     }
+}
+
+
+.transparent-marker-container{ ////if marker is not added to the marker pane,  the marker container is not automatially transparent
+    background-color:transparent;
+}
+
+.sonde-marker-icon{
+    position:absolute;
+    border-radius:15px;
+    border-style:solid;
+    height:100%;
+    width:100%;
+    &.boat{
+        border-width:0px;
+        border-radius:0px;
+        transform-origin:10px 10px;
+        &.active-marker{
+            fill:rgba(255,69,0,0.6) !important;
+            //stroke:rgba(255,69,0,1) !important;
+            background-color:transparent !important;
+        }
+    }
+    &.active-marker{
+        background-color:rgba(255,69,0,0.6) !important;
+        //border-color:rgba(255,69,0,1) !important;
+    }
+
 }
