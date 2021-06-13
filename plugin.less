@@ -1,7 +1,8 @@
 @import 'dev/variables.less';
-@import 'C:\Users\Chris\Documents\Progs\skewt\skewt\src\skewt.less';
+@import url("https://unpkg.com/skewt-plus/dist/skewt.css");   //import the skewt styles from npm
 
 @yellow:   #fff3e1;
+@orange:   #d49500;
 @red: rgba(157,3,0,1);
 @lRed: #946051;
 @white: #f8f8f8;  //rgba(248,248,248,1)
@@ -49,8 +50,8 @@
     pointer-events:auto;
     cursor:pointer;
     &.hidden{
-            display:none;
-            pointer-events:none;
+        display:none;
+        pointer-events:none;
     }
     &.grey{
         opacity:0.7;
@@ -58,27 +59,50 @@
 
 }
 
-.skew-t{
-    .controls .buttons{
-        background-color:transparent;
-        border:1px solid rgba(0,0,0,0.3);
-        &.clicked{
-             border-color:@lRed;
-             color:white;
-             background-color:@lRed;
-             &:hover{
-                background-color:@lRed;
-             }
 
-        }
+.section-border-radiosonde{
+    border:1px solid rgba(127,127,127,0.5);
+    border-radius:4px;
+    padding: 3px 3px 0px 3px;
 
-        &:hover{
-            background-color:white;
-        }
-    }
 }
 
-#radiosonde-range-container{
+.skew-t{
+    .controls,.range-container,.range-container-extra{
+        .buttons{
+            background-color:transparent;
+            border:1px solid rgba(0,0,0,0.3);
+            &.clicked{
+                 border-color:@lRed;
+                 color:white;
+                 background-color:@lRed;
+                 &:hover{
+                    background-color:@lRed;
+                 }
+
+            }
+
+            &:hover{
+                background-color:white;
+            }
+        }
+        .checkbox-container{
+            .checkbox{
+                font-size:1.1em;
+                &::before{
+                    top:0.2em;
+                }
+            }
+        }
+    }
+
+    .skewt-ranges::-webkit-slider-thumb{
+        background: @orange;
+    }
+
+}
+
+#radiosonde-range-container{   //colored range in  map
     .radiosonde-button();
 
     text-align:center;
@@ -116,12 +140,18 @@
 }
 
 
-
+.big-marker{
+    margin-left:-9px !important;
+    margin-top:-9px !important;
+    width:17px !important;
+    height:17px !important;
+}
 
 #@{plugin} {
     position:absolute;
     width: @widthOfMyPlugin;
     height:100%;
+    font-size:11px;
 
     .settings{
         width:95%;
@@ -129,7 +159,7 @@
         text-align:left;
         .head{
             margin-top:5px;
-            font-size:12px;
+            font-size:1.15em;
         }
     }
 
@@ -139,7 +169,7 @@
         text-align:center;
         border:1px solid rgba(0,0,0,0.3);
         border-radius:11px;
-        height:22px;
+        line-height:1.6em;
         cursor:pointer;
         min-width:50px;
         padding:2px 5px;
@@ -180,7 +210,6 @@
     .plugin-content {
         display:flex;
         flex-direction:column;
-        font-size:11px;
         padding:3px;
         .heading{
             margin-bottom:5px;
@@ -195,11 +224,16 @@
 
         .toggle-section{
             margin-top:10px;
+            &[data-ref='extraSettings']{
+                margin-top:0px;
+                margin-bottom:2px;
+            }
+
             &.checkbox{
                 &::before{
                     content: '\25B7\00a0\00a0';
-                    top:-0.1em;
-                    font-size:13px;
+                    top:-0.02em;
+                    font-size:1.1em;
                 }
                 & + *{
                     display:none;
@@ -208,19 +242,29 @@
                 &.off{
                     &::before{
                         content: "\25BD\00a0\00a0";
-                        top:-0.1em;
-                        font-size:13px;
+                        top:-0.02em;
+                        font-size:1.1em;
                     }
                     & + *{
                         display:block;
+                        &.range-container-extra{
+                            display:flex;
+                        }
+
                     }
                 }
             }
-
         }
-
         .prevAscent{
+
             cursor:pointer;
+            width:150px;
+            &.fm35{
+                background-color:rgba(255, 160, 122, 0.3);
+            }
+            &.fm94{
+                background-color: rgba(173, 216, 230, 0.3);
+            }
             &:hover{
                 font-weight:bold;
             }
@@ -228,12 +272,13 @@
         }
     }
 
-    [data-ref='syntimeRangeCont']{
+
+
+    [data-ref='syntimeRangeCont']{   ////range with syntimes below skewt
         position:relative;
         box-sizing:border-box;
         width:100%;
-        border:1px solid rgba(127,127,127,0.5);
-        border-radius:2px;
+        .section-border-radiosonde;
         height:30px;
         padding:0px 5px;
         [data-ref='syntimeMarkers']{
@@ -273,10 +318,11 @@
                 }
             }
         }
-
     }
 
-    [data-ref='syntimeRange']{
+
+
+    [data-ref='syntimeRange']{   ////the actual range
         -webkit-appearance: none;
         background-color:transparent;
         //margin:0px 5px;
@@ -300,14 +346,6 @@
         }
 
     }
-
-
-
-
-
-
-
-
 
      //range styling for webkit and moz
     @track-color: rgba(0,0,0,0.1);
@@ -386,6 +424,42 @@
             margin: 4px 0px;
         }
     }
+
+
+    .drag-right-border {
+        position:absolute;
+        height:30px;
+        width:10px;
+        left: calc(@widthOfMyPlugin - 5px);
+        top:calc(50% - 15px);
+        background-color:transparent;
+        cursor:pointer;
+        z-index:auto;
+        .right-border-line{
+            position:absolute;
+            z-index:0;
+            height:1000px;
+            top:-500px;
+            background-color:rgba(255,255,255,0.7);
+            width:4px;
+            left: 3px;
+            &.hidden{
+                display:none;
+            }
+
+        }
+        .inside-button{
+            width:100%;
+            height:100%;
+            position:absolute;
+            border-radius:5px;
+            border:1px solid @white;
+            background-color:@red;
+        }
+
+    }
+
+
 }
 
 
@@ -441,6 +515,10 @@
             background-image: linear-gradient(to bottom, rgba(248,248,248,0), rgba(248,248,248,1));
             pointer-events: none;
         }
+        .drag-right-border{
+            display:none;
+        }
+
     }
 
     .@{on-plugin} {

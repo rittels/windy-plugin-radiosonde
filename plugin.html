@@ -8,52 +8,66 @@
     <div class="desktab-heading size-xl" style="flex-grow:0;"><b>Radiosonde</b></div>
     <div class="mobile-title" style="flex-grow:0;">Radiosonde</div>
     <div class="page" data-ref="skewtPage">
+
+        <div style="text-align:center"><b data-ref="titleMainPage"></b>&nbsp;&nbsp;&nbsp;<span data-ref="titleSynTime"></span></div>
+
         <div id="skewt-container" class="skew-t noselect"></div>
+
         <div class="settings" style="margin-top:10px">
+
             <div class="head">
                 Available forecast model to compare:
             </div>
+
             <div data-ref="selProduct" style="min-height:30px;"><div data-ref="nomodel" style="pointer-events:none; cursor:auto; " class="select-product noselect">No Model available</div> </div>
             <div style="min-height:30px; ">
-                <div style="display:inline-block;  margin-top:7px;">Highlight:</div>
+                <div style="display:inline-block;  margin-top:7px;" class="head">Highlight:</div>
                 <span data-ref="highlight"></span>
             </div>
+
             <div style="display:flex; justify-content:space-between;">
                 <div style="display:inline-block; line-height:28px">
-                    <span>Syn time:&nbsp;&nbsp;&nbsp;</span>
+                    <span class="head">Syn time:&nbsp;&nbsp;&nbsp;</span>
                     <span data-ref="synTime"></span>
                 </div>
                 <div data-ref="showAscents" class="select-product" style="width:120px; float:right;">Show Ascents</div>
             </div>
+
             <div data-ref="syntimeRangeCont">
                 <input data-ref="syntimeRange" type="range" min="0"  max="100"  step="1">
                 <div data-ref="syntimeMarkers"></div>
             </div>
 
+            <div class="head toggle-section checkbox" onclick="this.classList.toggle('off');">Station detail:</div>
+            <div  class="section-border-radiosonde" data-ref="detail2">No Ascent Selected</div>
 
-            <div class="head">Station detail:</div>
-            <div  style="border:1px solid rgba(127,127,127,0.3);  margin-bottom:10px;  padding:5px; border-radius:3px;">
-            <div data-ref="detail1"></div>
-            <div data-ref="detail2"></div>
-            </div>
+            <div class="head toggle-section checkbox"  onclick="this.classList.toggle('off')">Download ascent:</div>
+            <div data-ref="downloads"></div>
+            <div data-ref="noAscSelected" class="select-product hidden">No ascent selected.</div>
             <br><br>
+
+            <!--  This will be appended to the skew-t extra settings -->
+            <div class="head toggle-section checkbox" data-ref="extraSettings" onclick="this.classList.toggle('off');">Extra settings:</div>
+
         </div>
     </div>
+
     <div class="page" style="display:none;"  data-ref="ascentsPage">
+        <div><b data-ref="titleAscentPage">Title</b></div>
         <div data-ref="ascentsContent" style="min-height:calc(100% - 25px);" ></div>
         <div data-ref="ascentsClose" class="select-product" style="width:120px;  position:sticky; bottom:5px; float:right;  display:block">Close</div>
     </div>
-
-
-
-
-
-
 
 </div>
 
 <div class="bottom-border-mobile">a</div>
 <div class="closing-x collapse-pane"></div>
+
+<div class="drag-right-border" data-ref="rightBorder">
+    <div class="right-border-line hidden"></div>
+    <div class="inside-button"></div>
+</div>
+
 
 <script>
     import $ from '@windy/$';
@@ -61,52 +75,27 @@
     import picker from '@windy/picker';
     import rs from '@windy/rootScope';
     import bcast from '@windy/broadcast';
-    //import drag from '@windy/Drag';
-    //import trans from '@windy/trans';
+    import Drag from '@windy/Drag';
     import _ from '@windy/utils';
-    //import Calendar from '@windy/Calendar';
     import store from '@windy/store';
     import allPlugins from '@windy/plugins';
     import Color from '@windy/Color';
     import models from '@windy/models';
     import lruCache from '@windy/lruCache';
 
-    //import BindedCheckbox from '@windy/BindedCheckbox';
     import Switch from '@windy/Switch';
-    //import BindedSwitch from '@windy/BindedSwitch';
-    //import Bar from '@windy/Bar';
-    //import Scrollable from '@windy/Scrollable';
-    //import format from '@windy/format';
-    //import Drag from '@windy/Drag';  use bottomSlide
     import BottomSlide from '@windy/BottomSlide';
-    import pluginDataLoader from '@windy/plugins/plugin-data-loader';
     import ib from './infobox.mjs';
+    import downloadObjAs from './download.mjs';
+    import pickerTools from './pickerTools.mjs';
 
-    const load = pluginDataLoader({
-        key: 'tqBdvHJjtNrGq4TrFzt9D5NDz9fIZSC8'
-        , plugin: 'windy-plugin-radiosonde'
-    });
-
-    //import urls from '@windy/urls';
-    //import http from '@windy/http';
-
+    //import getForecast from './getForecastW.mjs';
+    import getForecast from './getForecast.mjs';
 
 
     let earliestAirDataTime;      //get earliest time where forecast data is avaialble,  with promise.all once summary loaded,  show only the markers with forecast avail
 
     const thisPlugin=this;
-    const skewt=new SkewT("#skewt-container", rs.isMobileOrTablet);
-
-
-    let skewtCb=$('input[type="checkbox"]',$("#skewt-container"));
-    skewtCb.style.display="none";
-    let skewtCbT=$('.skewt-checkbox-text',$("#skewt-container"));
-    skewtCbT.classList.add("checkbox","inlined","off");
-    skewtCbT.addEventListener("click", () => {
-        skewtCb.click();
-        skewtCbT.classList.toggle("off");
-    });
-
 
     const dayMs=1000*60*60*24;
     const h1=1000*60*60;
@@ -115,6 +104,7 @@
     let maxAge=168; //hours in a week.
     let reqAge=9;
     let prevColor, selMarker;   //selMarker refers to the selected marker object.
+    let selPressure;
 
     let link2ts = false;
 
@@ -124,15 +114,91 @@
     let prodBtns={};
     let prodData={};
     let sondeData=[];
+    let selAscent;  //selected ascent geoJSON.
+    let surElev;
+    let pickerPos=null;
+    let newW = 350;
+
+    let sondeinfo;   //info data field codes
 
     //use internal windy lruCache, to cache airdata and ascents.
     let ascCache = new lruCache(200); //cache 200 ascents
     let airDataCache = new lruCache(100);
 
     const datapath="https://radiosonde.mah.priv.at/data/";
+    const summary_br = 'summary.geojson.br';
     let summaryFmt;
 
-    ////marker properties and colors
+
+
+    //-- add windy style checkbox to skewt and add make extra settings collapsible
+
+    const skewt=new SkewT("#skewt-container", rs.isMobileOrTablet);
+
+    let cbCont = $('.checkbox-container',$("#skewt-container"));
+    let skewtCb=$('input[type="checkbox"]',cbCont);
+    skewtCb.style.display="none";
+    let skewtCbT=$('.skewt-checkbox-text',cbCont);
+    skewtCbT.classList.add("noselect","inlined");
+    let windyCb = document.createElement("span");
+    windyCb.classList.add("checkbox","off");
+    cbCont.insertBefore(windyCb,skewtCbT);
+    windyCb.addEventListener("click", () => {
+        skewtCb.click();
+        windyCb.classList.toggle("off");
+    });
+
+    let extraSetCont= $(".range-container-extra",  $('#skewt-container'));
+    extraSetCont.classList.add("section-border-radiosonde");
+    $('#skewt-container').insertBefore(this.refs.extraSettings,extraSetCont);
+    extraSetCont.style.padding="3px 0px 3px 3px";
+
+
+
+
+    //--opening and closing
+
+    this.active = () => document.body.classList.contains("radiosonde-plugin-active");
+
+    this.onopen = () => {
+        if (this.active()) return;
+        document.body.classList.add("radiosonde-plugin-active");
+        //console.log(markers);
+        if (sondeinfo) summaryPromise().then(handleAgeRangeInput);
+        markers=[];
+        this.refs.infobox.style.display=null;
+        W.plugins.detail.className="detail bottom-border left-border";
+        W.plugins.detail.exclusive="";
+        bcast.on("pluginOpened",detailOpened);
+        bcast.on("pluginClosed",detailClosed);
+    }
+
+    this.onclose = message => {   //message=="unmount":  Plugin closed.   All layers removed from map.  Listeners off.
+        console.log(message);
+        if (message!="unmount") return;
+        document.body.classList.remove("radiosonde-plugin-active");
+
+        //remove all map elements and set markers=[]
+        markers.forEach( removeMarker );
+        markers=[];
+        this.refs.infobox.style.display="none";
+        lineMarker.remove();
+        ghostMarker.remove();
+
+        W.plugins.detail.className="detail bottom-border";
+        W.plugins.detail.exclusive="all";
+
+        bcast.off("pluginOpened",detailOpened);
+        bcast.off("pluginClosed",detailClosed);
+        map.off("click",mapClick4Detail);  //in case detail stays open
+    }
+
+
+
+    $(".closing-x:not(.collapse-pane)",thisPlugin.element).addEventListener("click",()=>thisPlugin.close("unmount"));
+
+
+    //--marker properties and colors
 
     //place markers in a custom pane that is ontop of labelslayer
     //when picker is openened,  append to the picekr marker DOM element to the popup pane.
@@ -140,6 +206,15 @@
     let sondeMarkerPane = map.createPane("sondeMarkerPane");
     sondeMarkerPane.style.zIndex=610;
 
+    function timeString(unxiTimestamp) {
+        var ts = new Date(unxiTimestamp * 1000).toJSON();
+        return ts.substring(0, 10) + ' ' + ts.substring(11, 16) + 'Z';
+    }
+    function minsec(sec) {
+        if (sec < 60) return sec + " sec";
+        var m = sec / 60;
+        return Math.round(m) + " min";
+    }
 
     const findNearestPoint=(e,ar)=>{  //use sondeData and e is latlng of event
         let i=ar.reduce( (ac,n,i) => {
@@ -165,12 +240,15 @@
     }
 
     skewt.setCallback(p=>{
+        selPressure=p;
         let {lat,lng}=findPointWithPressure(p,sondeData);
         if (lat!==void 0 && lng!==void 0) lineMarker.setLatLng({lat,lng});
     });
 
+
+    //--ghost marker and black spot
     const onGhostDrag=(latlng)=>{
-        if (selMarker.boatPath){       //if boat 1st check if not maybe closer to another boat position.
+        if (selMarker && selMarker.boatPath){       //if boat 1st check if not maybe closer to another boat position.
             let i= findNearestIndex(latlng, selMarker.boatPath._latlngs)
             if (selMarker.i!=i){
                 selMarker.i=i;
@@ -182,11 +260,11 @@
             let n=findNearestPoint(latlng, sondeData);
             lineMarker.setLatLng(n);
             skewt.showTooltips();
-            skewt.move2P(n.press);
+            selPressure=n.press;
+            skewt.move2P(selPressure);
         }
     }
 
-    ////define markers
     let ghostDiv = L.divIcon({className:"transparent-marker-container", html:'<div style="position:absolute; left:0px; top:0px; height:20px; width:20px; background-color:rgba(0,0,0,0);"></div>',  iconAnchor:[10,10], iconSize:[0,0]});
     let ghostMarker = L.marker([0,0],{icon:ghostDiv,  zIndexOffset:5000,  draggable:true, pane:sondeMarkerPane})
         .on("drag", e=>onGhostDrag(e.latlng))
@@ -198,20 +276,38 @@
             if (sondeData){
                 ghostMarker.setLatLng(findNearestPoint(lineMarker.getLatLng(), sondeData));
             }
-        })
-        .addTo(map);
+        });
+        //.addTo(map);
 
     let markerDiv = L.divIcon({className:"transparent-marker-container",html:'<div style="position:absolute; left:0px; top:0px; border-radius:5px; height:5px; width:5px; background-color:black;"></div>',  iconAnchor:[3,3], iconSize:[0,0]});
-    let lineMarker = L.marker([0,0],{icon:markerDiv, zIndexOffset:3000,  pane:sondeMarkerPane}).addTo(map);
+    let lineMarker = L.marker([0,0],{icon:markerDiv, zIndexOffset:3000,  pane:sondeMarkerPane});
+    //.addTo(map);
 
     ////to debug
     //let temp1 = L.circleMarker([0,0],{radius:5, weight:2, color:"red"}).addTo(map)
     //let temp2=   L.circleMarker([0,0],{radius:5, weight:2, color:"green"}).addTo(map)
 
 
+    ////function to obtain pressure,  from surface pressure,  from provided pressure and gh
+
+    function getElevation2(p, refp=1013.25){   //pressure altitude with NOAA formula  (https://en.wikipedia.org/wiki/Pressure_altitude)
+        return    145366.45 * (1 - Math.pow(p/ refp, 0.190284) ) / 3.28084 ;
+    }
+
+    function pressureFromElevation(e, refp=1013.25){
+        e = e*3.28084;
+        return Math.pow((-(e/145366.45 - 1)), 1/0.190284) * refp;
+    }
+
+    function getSurfaceP(surfElev, refElev = 110.8, refP = 1000){  //calculate surface pressure at surfelev,   from reference elev and ref pressure.
+        let expectElev = getElevation2(refP);
+        let elevD = surfElev - refElev;
+        return pressureFromElevation(elevD, refP);
+    }
 
 
-    ////colors
+
+    //--colors
     var viridisStops = ['#440154', '#482777', '#3F4A8A', '#31678E', '#26838F', '#1F9D8A', '#6CCE5A', '#B6DE2B', '#FEE825'];
 
     function hex2RgbA(a){
@@ -220,7 +316,7 @@
 
     let ageColorsInstance, ageColors,  getAgeColor;
 
-    const initColors = () => {
+    const initColors = () => { //depends on maxAge,
         let ii=Math.floor(maxAge/(viridisStops.length-1));
         ageColorsInstance = Color.instance({
             ident: 'ageColors',
@@ -234,7 +330,7 @@
         };
     }
 
-    ////product switch
+    //--product switch and forecast/radiosonde switch
     availProd.forEach(p=>{
         let td=document.createElement("div");
         td.classList.add("select-product","hidden");
@@ -243,16 +339,20 @@
         this.refs.selProduct.appendChild(td);
         prodBtns[p]=td;
         prodData[p]=[];
-    })
+    });
 
-    Switch.instance({
+    let prodSwitchClicked=false;
+    let prodSwitch = Switch.instance({
         el:this.refs.selProduct,
         initValue:"ecmwf",
         onset: value=>{
-            skewt.remove(prodData[prodSel]);
+            skewt.removePlot(prodData[prodSel]);
             prodSel=value;
-            skewt.plot(prodData[prodSel],{add:true});
-            highlightswitch.set("Radiosonde");
+            prodSwitchClicked=true;
+            store.set("product",prodSel);
+            if(!pickerPos) skewt.plot(prodData[prodSel],{add:true});
+            //makeCloudsFromProd(prodSel);  now done in skewt
+            highlightswitch.onset(highlightswitch.selected);
         }
     });
 
@@ -262,7 +362,9 @@
         if(p=="Forecast"){
             td.classList.add("hidden");
             this.refs.selectForecast=td;
-            console.log(this.refs.selectForecast)
+            //console.log(this.refs.selectForecast)
+        }  else {
+            this.refs.selectSonde=td;
         }
         td.dataset.do=`set,${p}`;
         td.innerHTML=p;
@@ -274,6 +376,12 @@
         initValue:"Radiosonde",
         onset: value=>{
             skewt.selectSkewt(value=="Radiosonde"?sondeData:prodData[prodSel]);
+            //console.log(selPressure);
+            if(selPressure){
+                //console.log(selPressure);
+                skewt.showTooltips();
+                skewt.move2P(selPressure);
+            }
         }
     });
 
@@ -304,16 +412,37 @@
 
             //console.log(ascAr[i].syn_timestamp.toJSON());
             this.refs.synTime.innerHTML=new Date(ascAr[i].syn_timestamp*1000).toJSON().slice(0,16)+"Z";
+            //console.log("call plot from range");
             plotSonde(id,ascAr[i]);
         }
     });
 
-    ////infobox wiht age slider
+
+    ["CSV","GeoJSON"].forEach(type=>{
+        let dv=document.createElement("div");
+        dv.classList.add("select-product");
+        dv.innerHTML=type;
+        dv.addEventListener("click",()=>{
+            if (!selAscent){
+                this.refs.noAscSelected.classList.remove("hidden");
+                setTimeout(()=>this.refs.noAscSelected.classList.add("hidden"),  1000 );
+            } else {
+                downloadObjAs(type, selAscent);
+            }
+        })
+        this.refs.downloads.appendChild(dv);
+    });
+
+
+    //--infobox with age slider
     this.refs.infobox = ib(
         `
         <div id="open-radiosonde-plugin" class='radiosonde-button inlined' data-icon='d' >Radiosonde</div>
-        <div id="radiosonde-zoom"  class='radiosonde-button hidden'>Zoom in on marker</div>
-        <div id="radiosonde-link-timestamp" class='radiosonde-button'>Click to link Calendar</div>
+        <div id="radiosonde-zoom"  class='radiosonde-button hidden'>Zoom in on marker</div>`
+
+        //+
+        //`<div id="radiosonde-link-timestamp" class='radiosonde-button'>Click to link Calendar</div>`
+        +`
         <div id="radiosonde-age-value" class='radiosonde-button'></div>
         <div id="radiosonde-range-container">
             <input id="radiosonde-range" type="range" min="0" max="168" step="1">
@@ -327,6 +456,8 @@
 
     bcast.on("pluginOpened",e=>{if (e==this.ident) $("#open-radiosonde-plugin").classList.add("hidden") });
     bcast.on("pluginClosed",e=>{if (e==this.ident) $("#open-radiosonde-plugin").classList.remove("hidden") });
+
+   /*
     $("#radiosonde-link-timestamp").addEventListener("click",()=>{
         link2ts=true;
         $("#radiosonde-age-value").classList.add("grey");
@@ -345,8 +476,10 @@
         $("#radiosonde-age-value").innerHTML=`Newer than ${reqAge} hrs`;
         $("#radiosonde-range-container").classList.remove("hidden");
     })
+    */
     $("#radiosonde-zoom").addEventListener("click",()=>{
-        if (selMarker)  map.setView(selMarker.circle._latlng,7);
+        if (selMarker)  map.setView(selMarker.circle._latlng,8);
+        else if (pickerPos) map.setView([pickerPos.lat,pickerPos.lon],8);
     })
 
     $("#radiosonde-range-container").style.background=`linear-gradient(90deg,${viridisStops.join(",")})`;
@@ -359,14 +492,14 @@
         if (m.boatPath)  m.boatPath.remove();
         if (m.boatPathGhost)  m.boatPathGhost.remove();
         if (m==selMarker){
-            console.log("selected Marker removed");
+            //console.log("selected Marker removed");
             skewt.clear();
             skewt.hideTooltips();
             selMarker=null;
             $("#radiosonde-zoom").classList.add("hidden");
         }
-
     }
+
     const addMarker=(m)=>{
         m.circle.addTo(map);
         if (m.line)      m.line.addTo(map);
@@ -388,27 +521,22 @@
     }
 
     const handleTs = ts => {
-        if (!link2ts) return;
-        //console.log(new Date(ts));
         markers.forEach(m=>{
             let found=null;
             if (m.ascAr[0].syn_timestamp > ts/1000 - 90*60){
                 for (let i=0; found==null && i<m.ascAr.length; i++){
-                //m.ascAr.forEach(({syn_timestamp})=>{
                     let d= Math.abs(m.ascAr[i].syn_timestamp-ts/1000);
                     if (d< 90*60) {
-                        //console.log(m.id,i, d);
                         found=i;
                     }
                 }
             }
-            //console.log(found);
             if (found!==null) {
                 m.i=found;
-                addMarker(m);
+                if(m.circle._icon)m.circle._icon.classList.add("big-marker");
 
             } else {
-                removeMarker(m);
+                if(m.circle._icon)m.circle._icon.classList.remove("big-marker")
             }
         })
     }
@@ -416,7 +544,7 @@
 
     $("#radiosonde-range").addEventListener("input", handleAgeRangeInput);
 
-    //// draw circles
+    //-- draw circles
 
     const source_map = {
         netCDF: "madis/",
@@ -517,17 +645,17 @@
         //console.log("fix_pressure", fix_pressure);
     }
 
-    const windDirection = (x,y) => ((2*Math.PI + Math.atan2(x,y))*180/Math.PI)%360;
+    const windDirection = (x,y) => ((Math.PI + Math.atan2(x,y))*180/Math.PI)%360;
 
     const geodesicDir = (p1,p2) =>{
         let tr=Math.PI/180;
         let lat1=p1.lat*tr, lat2=p2.lat*tr, lon1=(p1.lon||p1.lng)  *tr, lon2=(p2.lon||p2.lng)  *tr;
-        console.log(lat1,lon1,lat2,lon2);
+        //console.log(lat1,lon1,lat2,lon2);
             const y = Math.sin(lon2-lon1) * Math.cos(lat2);
             const x = Math.cos(lat1)*Math.sin(lat2) -  Math.sin(lat1)*Math.cos(lat2)*Math.cos(lon2-lon1);
             const theta = Math.atan2(y, x);
             let dir = (theta/tr + 360) % 360;
-            console.log(dir);
+            //console.log(dir);
         return dir;
     }
 
@@ -538,10 +666,148 @@
         return k;
     }
 
-    const plotSonde=(id, asc, onlyPath=false)=>{ //onlyPath==true,  fetch the path and atttach to the marker,  but do not plot the sonde
 
-         //check if boat,  then update marker positon and dir;
-         if (selMarker.boatPath){
+    let throttle = (function(){         //needs refinement to manage multiple different functions,  thus cache of functions
+        let ready=true, to=null, args, fun;   //to = timeout
+        return function(f, iv, delayStart){
+            args = Array.prototype.slice.call(arguments).slice(3);
+            fun = f;
+
+            if(delayStart && to===null) {
+                ready=false;
+                to=setTimeout(()=>ready=true, iv);
+            }
+
+            if (ready){
+                fun.apply(null, args);
+                ready=false;
+                clearTimeout(to);
+                setTimeout(()=>{
+                    ready=true;
+                    to=setTimeout(()=>{
+                        fun.apply(null,args);
+                        to=null;
+                    },iv);
+                },iv)
+            }
+        }
+    })()
+
+
+    const getAirData=(product, syntime, lat, lon, add, ar)=>{
+
+        let key = makeAirKey(lat,lon,product);
+
+        return new Promise((res,rej)=>{
+            let val= airDataCache.get(key);
+            if (val){   //must still validate refTime.
+                res(val);
+            } else {
+                res(
+                    getForecast(product, lat, lon)
+                    .then(d =>{
+                        airDataCache.put(key,d);
+                        return d;
+                    })
+                )
+            }
+        })
+        .then(data=>{
+
+            //find time
+            let mindif=Infinity,ix;
+            let lasth=0;
+            data.data.data.hours.forEach((h,i)=>{
+                let d=Math.abs(h-syntime);
+                if (d<mindif){
+                    mindif=d; ix=i;
+                }
+            });
+
+            if (ix || mindif < h1*3) {
+
+                let ar2=[];
+                let d=data.data.data;
+
+                if (data.data.header.elevation!==void 0)  surElev = data.data.header.elevation;
+
+                for (let p in d){
+                    let prop=p.match(/(.*?)-(.*?)(h|$)/);
+                    if (prop){
+                        //console.log("prop2",prop[2]);
+                        if(prop[2]=="surface") prop[2]=1013.25;
+                        if (prop[1]=="dewpoint"){
+                            ar2.push({press:+prop[2], dwpt:d[p][ix]-273.15});
+                        } else if (prop[1]=="gh"){
+                            ar2.find(a=>a.press==+prop[2]).hght=d[p][ix];
+                        } else if (prop[1]=="rh"){
+                            ar2.find(a=>a.press==+prop[2]).rh=d[p][ix];
+                        } else if (prop[1]=="temp"){
+                            ar2.find(a=>a.press==+prop[2]).temp=d[p][ix]-273.15;
+                        }  else if (prop[1]=="wind_u"){
+                            ar2.find(a=>a.press==+prop[2]).u=d[p][ix];
+                        } else if (prop[1]=="wind_v"){
+                            ar2.find(a=>a.press==+prop[2]).v=d[p][ix];
+                        }
+                    }
+                }
+
+                ar2.forEach(e=>{
+                    e.wdir=windDirection(e.u, e.v);
+                    e.wspd=Math.sqrt(e.u*e.u+e.v*e.v);
+                });
+
+                ar2.sort((a,b)=>b.press-a.press);
+
+                ar2.forEach(e=> e.hght = e.hght||getElevation2(e.press) );
+
+                let surIx = ar2.findIndex(a=>a.hght>surElev);
+
+                ar2[0].press = getSurfaceP(surElev, ar2[surIx].hght , ar2[surIx].press);
+                ar2[0].hght = surElev;
+                ar2[0].flags = 131072;
+
+                let removed=ar2.splice(1, surIx-1);
+
+                prodData[product]=ar2;
+
+                prodBtns[product].classList.remove("hidden");
+                this.refs.selectForecast.classList.remove("hidden");
+
+                this.refs.nomodel.classList.add("hidden");
+                //console.log(ar2);
+
+                if (prodSel == product)  {
+                    skewt.plot(ar2,{add, ixShift: add?0:1});
+                    //throttle(makeCloudsProd, 500,  false, ar2);
+                }
+
+            } else {
+
+                //airdataAvail=false;
+            }
+
+            return;
+        }).catch(e=>{
+            console.log("ERROR",e)
+            return;
+        });
+    }
+
+    const getPointProductsAr=(coordSel)=>{
+
+            let pp=models.getPointProducts(coordSel);
+            let pointprods = pp.filter(e=>availProd.indexOf(e)!=-1);
+            if (pointprods.indexOf("icon")==-1)pointprods.push("icon");
+            /// if iconEu available,  "icon" is excluded,  since I think iconEU is perhaps better.  Add it anyway.
+
+            return pointprods;
+    }
+
+    const plotSonde=(id, asc, onlyPath=false)=>{ //onlyPath==true,  fetch the path and attach to the marker,  but do not plot the sonde
+
+         //check if boat,  then update marker position and dir;
+         if (selMarker && selMarker.boatPath){
             let {i,ascAr, circle} = selMarker;
             circle.setLatLng([ascAr[i].lat,ascAr[i].lon]);
             if(i==ascAr.length-1) i-=1;
@@ -565,8 +831,15 @@
             }
         }).then(d=>{
 
-            hotfix(d);//temp an pressure fix
-            //console.log(d.properties);
+            hotfix(d);//temp and pressure fix
+
+            selAscent=d;  //ref to last selected sonde original geojson for download purposes
+
+            //console.log(d);
+
+            //clear canvas2
+            let cntx = skewt.cloudRef2.getContext('2d');
+            cntx.clearRect(0, 0, skewt.cloudRef2.width, skewt.cloudRef2.height);
 
             if (!onlyPath){
                 let str="More Detail: <br><div style='font-size:8px'>";
@@ -574,13 +847,14 @@
                     str+=`<b>&nbsp;&nbsp;${p}:</b> ${d.properties[p]}<br>`
                 }
                 str+="</div>";
-                this.refs.detail2.innerHTML=str;
-
+                //this.refs.detail2.innerHTML=str;
+                d.properties.station_name=selMarker.name;
+                genDetail(d, this.refs.detail2);
                 $("#radiosonde-zoom").classList.remove("hidden");
             }
 
-            //console.log(d.features);
-            let ar = d.features.map(f=>{
+            let ar = d.features.filter(f=>(f.geometry.type=="Point" && f.properties.temp !== void 0  && f.properties.pressure !== void 0  )).map(f=>{
+
                 let p=f.properties;
                 let temp=p.temp-273.15;
                 let dwpt=p.dewpoint-273.15;
@@ -589,16 +863,16 @@
                 let wdir=0,wspd=0;
                 if (p.wind_u && p.wind_v){
                     wdir=windDirection(p.wind_u, p.wind_v);
-                    wspd=Math.sqrt(p.wind_u*p.wind_u+p.wind_v+p.wind_v);
+                    wspd=Math.sqrt( p.wind_u*p.wind_u + p.wind_v*p.wind_v );
                 }
                 let time=p.time;
-                //console.log(f.geometry.coordinates);
+                let flags=p.flags;
                 let [lng,lat] = f.geometry.coordinates;
-                return {lng,lat,temp,dwpt,hght,press,wdir,wspd,time};
+                return {lng,lat,temp,dwpt,hght,press,wdir,wspd,time,flags};
             });
 
-            //let midtime = 1000*(ar[ar.length-1].time + ar[0].time)/2;
             let syntime=d.properties.syn_timestamp*1000;
+            if (!onlyPath) this.refs.titleSynTime.innerHTML=new Date(syntime).toJSON().slice(0,16).replace("T","  ")+"Z";
 
             /////draw polyline
             let marker = markers.find(m=>m.id==id);
@@ -612,10 +886,11 @@
                 .addTo(map)
                 .bringToFront()
                 .on('click', e=>{
-                    //console.log(e);
                     if (sondeData!=marker.data){
                         marker.circle.fire("click");
                     }
+                    ghostMarker.addTo(map);
+                    lineMarker.addTo(map);
                     ghostMarker.setLatLng(e.latlng);
                     lineMarker.setLatLng(e.latlng);
                 });
@@ -630,6 +905,8 @@
 
             if(!onlyPath){
                 sondeData=marker.data;
+                ghostMarker.addTo(map);
+                lineMarker.addTo(map);
                 ghostMarker.setLatLng(sondeData[0]);
                 lineMarker.setLatLng(sondeData[0]);
                 skewt.clear();  //just in case,  should not be necessary
@@ -638,105 +915,26 @@
                 return {syntime,lat:ar[0].lat,lon:ar[0].lng};
             } else return {};
 
-        }).then(({syntime,lat,lon})=>{
+        }).then(({syntime,lat,lon,ar})=>{
 
 
             if (!syntime) return;
-            //console.log(prodSel);
 
-            let pp=models.getPointProducts(coordSel);
-            let pointprods = pp.filter(e=>availProd.indexOf(e)!=-1);
-            if (pointprods.indexOf("icon")==-1)pointprods.push("icon");
-            /// if iconEu available,  "icon" is excluded,  since I think iconEU is perhaps better.  Add it anyway.
+            let pointprods=getPointProductsAr(coordSel);
 
             for (let p in prodBtns) {
                 prodBtns[p].classList.add("hidden");
                 prodData[p]=[];//clear all previous data arrays;
             }
 
-            //this.refs.highlight.classList.add("hidden");
             this.refs.selectForecast.classList.add("hidden");
             this.refs.nomodel.classList.remove("hidden");
             highlightswitch.set("Radiosonde");
 
-            const getNextProd=(prodi)=>{
-
-                let key = makeAirKey(lat,lon,pointprods[prodi]);
-
-                new Promise((res,rej)=>{
-                    let val= airDataCache.get(key);
-                    if (val){   //must still validate refTime.
-                        res(val);
-                    } else {
-                        res(
-                            load('airData',{lat,lon,model:pointprods[prodi]})
-                            .then(d =>{
-                                airDataCache.put(key,d);
-                                return d;
-                            })
-                        )
-                    }
+            const getNextProd = (i) =>{
+                getAirData(pointprods[i],syntime,lat,lon,true).then(()=>{
+                    if (++i<pointprods.length) getNextProd(i);
                 })
-                .then(data=>{
-
-                    //find time
-                    let mindif=Infinity,ix;
-                    let lasth=0;
-                    data.data.data.hours.forEach((h,i)=>{
-                        if(i==0)console.log(new Date(h));
-                        let d=Math.abs(h-syntime);
-                        if (d<mindif){
-                            mindif=d; ix=i;
-                        }
-                    });
-
-                    if (ix || mindif < h1*3) {
-
-                        let ar2=[];
-                        let d=data.data.data;
-                        for (let p in d){
-                            let prop=p.match(/(.*?)-(\d*?)h/);
-                            if (prop){
-                                if (prop[1]=="dewpoint"){
-                                    ar2.push({press:+prop[2], dwpt:d[p][ix]-273.15});
-                                } else if (prop[1]=="gh"){
-                                    ar2.find(a=>a.press==+prop[2]).hght=d[p][ix];
-                                } else if (prop[1]=="rh"){
-                                    ar2.find(a=>a.press==+prop[2]).rh=d[p][ix];
-                                } else if (prop[1]=="temp"){
-                                    ar2.find(a=>a.press==+prop[2]).temp=d[p][ix]-273.15;
-                                }  else if (prop[1]=="wind_u"){
-                                    ar2.find(a=>a.press==+prop[2]).u=d[p][ix];
-                                } else if (prop[1]=="wind_v"){
-                                    ar2.find(a=>a.press==+prop[2]).v=d[p][ix];
-                                }
-                            }
-                        }
-                        ar2.forEach(e=>{
-                            e.wdir=windDirection(e.u, e.v);
-                            e.wspd=Math.sqrt(e.u*e.u+e.v*e.v);
-                        });
-
-                        ar2.sort((a,b)=>b.press-a.press);
-                        prodData[pointprods[prodi]]=ar2;
-
-                        prodBtns[pointprods[prodi]].classList.remove("hidden");
-                        this.refs.selectForecast.classList.remove("hidden");
-
-                        this.refs.nomodel.classList.add("hidden");
-                        //console.log(ar2);
-
-                        if (prodSel == pointprods[prodi])  skewt.plot(ar2,{add:true});
-
-                    } else {
-                        //airdataAvail=false;
-                    }
-
-                    if (++prodi<pointprods.length) getNextProd(prodi);
-                }).catch(e=>{
-                    console.log("ERROR",e)
-                    if (++prodi<pointprods.length) getNextProd(prodi);
-                });
             }
             getNextProd(0);
         })
@@ -745,29 +943,27 @@
 
     let timeRangeVals={};
 
+    const deselectSelMarker=()=>{
+        if (selMarker && selMarker.circle &&  selMarker.circle._icon){
+            selMarker.circle._icon.firstElementChild.classList.remove("active-marker");
+        }
+        selMarker=null;
+        this.refs.selectSonde.classList.add("hidden");
+        lineMarker.remove();
+        ghostMarker.remove();
+    }
 
     ////load all the summary:
 
+    let summaryPromise = () => fetch(datapath+"summary.geojson").then(r=>r.json()).then(sum=>{
 
-    let summaryPromise = fetch(datapath+"summary.geojson").then(r=>r.json()).then(sum=>{
+        console.log(sum);
+
         summaryFmt = sum.properties.fmt;
-
-        sum.features.forEach(f=>{
-            if(f.geometry.type!="Point")console.log(f.geometry.type);
-            let a=f.properties.ascents;
-            if(a[0].lat!==void 0){
-                console.log(a);
-                let latdif=a[0].lat-a[a.length-1].lat;
-                let lngdif=a[0].lon-a[a.length-1].lon;
-                console.log(f.properties.name,latdif,lngdif);
-            }
-        });
 
         initColors();
 
         sum.features.forEach(d=>{
-
-        console.log(d);
 
             let [lng,lat]=d.geometry.coordinates;
 
@@ -803,34 +999,44 @@
             }
 
 
-
             //console.log(sondeDivIcon);
-
             let marker={
                 id: d.properties.station_id,
+                name: d.properties.name,
+                type: d.properties.id_type,
+                select: function(){
+                    selMarker=marker;//e.target;
+                    selMarker.circle._icon.firstElementChild.classList.add("active-marker");
+                    thisPlugin.refs.selectSonde.classList.remove("hidden");
+                },
 
                 circle: L.marker([lat,lng],{icon:sondeDivIcon, pane:sondeMarkerPane}).addTo(map).on('click',e=>{
 
-                    console.log(marker.id,  marker.i,  ascAr[0]);
-
                     thisPlugin.open();
 
-                    if (selMarker && selMarker.circle &&  selMarker.circle._icon){
-                        selMarker.circle._icon.firstElementChild.classList.remove("active-marker");
-                    }
-                    selMarker=marker;//e.target;
-                    selMarker.circle._icon.firstElementChild.classList.add("active-marker");
+                    deselectSelMarker();
+                    marker.select();
+                    bcast.fire("rqstClose","picker");
 
                     let [lon,lat,elev]=d.geometry.coordinates;
 
-                    let str="";
-                    for (let p in d.properties){
-                        if (p!="ascents")  str+= `&nbsp;&nbsp;<b>${p}:</b> ${d.properties[p]}<br>`;
-                    }
-                    this.refs.detail1.innerHTML=str;
+                    store.set("timestamp",ascAr[0].syn_timestamp*1000);
 
-                    let
-                        id=d.properties.station_id,
+                    //fire a map click,  which will update the detail plugin if open,   I could not find a way to update the detail position,  without changing the interal code of detail
+                    if(W.plugins.detail.isOpen)  {
+                        let latlng ={lat,lng:lon,fromMarker:true};
+                        map.fire("click",
+                            {
+                                latlng,
+                                layerPoint: map.latLngToLayerPoint(latlng),
+                                containerPoint: map.latLngToContainerPoint(latlng)
+                            }
+                        )
+                    }
+
+                    this.refs.titleAscentPage.innerHTML = this.refs.titleMainPage.innerHTML = marker.name;
+
+                    let id=d.properties.station_id,
                         rangeMarkerAr=[],
                         min = ascAr[ascAr.length-1].syn_timestamp,
                         max = ascAr[0].syn_timestamp,
@@ -839,16 +1045,20 @@
                     this.refs.ascentsContent.innerHTML="";
                     this.refs.syntimeMarkers.innerHTML="";
 
+                    ascAr = ascAr.filter((a,i,ar)=>     //filter out the older format if within an hour of fm94
+                                a.repfmt=="fm94" ||
+                                (a.syn_timestamp < (i>0?ar[i-1].syn_timestamp-3600:Infinity) && a.syn_timestamp > (i<ar.length-1?ar[i+1].syn_timestamp+3600:0))
+                            );
+
                     ascAr.forEach((a,i)=>{
                         let dv=document.createElement("div");
-                        dv.classList.add("prevAscent");
+                        dv.classList.add("prevAscent", a.repfmt);
                         dv.innerHTML=new Date(a.syn_timestamp*1000).toJSON();
                         this.refs.ascentsContent.appendChild(dv);
                         dv.addEventListener("click",e=>{
                             plotSonde(d.properties.station_id,a);
                             this.refs.ascentsClose.click();
                         })
-
 
                         //syn-time range:
                         let mrkr= document.createElement("div");
@@ -864,6 +1074,7 @@
                     timeRangeVals={id, ascAr, min, max, dif, lat, lon, rangeMarkerAr, marker};
 
                     coordSel={lat,lon};
+
                     plotSonde(id, marker.ascAr[marker.i]);
                 }),
                 age,
@@ -873,30 +1084,31 @@
                 boatPathGhost: !isBoat?null:
                     L.polyline(ascAr,{color:"white", weight:10, opacity:0, bubblingMouseEvents:false, interactive:true, }).addTo(map)
                         .on("click",e=>{
-                            console.log(e);
+                            //console.log(e);
                             marker.circle.fire("click");
                             onGhostDrag(e.latlng);
                         }),
                 i:0
             }
 
-
-
-
-
             markers.push(marker);
 
         });
     });
 
-    let airDataTimePromise =  load('airData',{model:"ecmwf",lat:0,lon:0}).then(d=>{
-        earliestAirDataTime=d.data.data.hours[0] - 90*60*1000;
-        reqAge = (Date.now() - earliestAirDataTime) / 3600000;
-        return reqAge;
-    });
+    let airDataTimePromise =
+        getForecast("ecmwf", 0, 0).then(d =>{
+            earliestAirDataTime=d.data.data.hours[0] - 90*60*1000;
+            reqAge = (Date.now() - earliestAirDataTime) / 3600000;
+            return reqAge;
+        });
 
-    //once summary loaded and airDataStart has loaded:
-    Promise.all([airDataTimePromise,summaryPromise]).then(()=>{
+    let sondeinfoPromise = fetch(`https://radiosonde.mah.priv.at/static/sondeinfo.json`).then(r=>r.json()).then(d=>sondeinfo=d);
+
+    //once summary loaded and earliestAirDataTime has loaded:
+
+     Promise.all([airDataTimePromise, summaryPromise(), sondeinfoPromise]).then(r=>{
+        //console.log(r[0]);
         $("#radiosonde-range").max= maxAge;
         $("#radiosonde-range").value = maxAge - reqAge;
         //markers.forEach(m=>{
@@ -904,6 +1116,8 @@
        // })
         handleAgeRangeInput();
     })
+
+
 
 
     /////Bottom slide //I changed it so that the plugin top can be moved down.
@@ -932,24 +1146,360 @@
         });
     }
 
+    ////if touchmove detected on the radiosonde container,  and inside plot area,  then preventDefault which is scrolling,  and consqently allow drag inside.
     $("#radiosonde-container").addEventListener("touchmove", e=>{
         let x=e.targetTouches[0].clientX;
         let y=e.targetTouches[0].clientY;
-        let {top,bottom,left,right}=document.getElementById("tooltipRect").getBoundingClientRect();
+        let {top,bottom,left,right}= skewt.refs.tooltipRect.getBoundingClientRect();
         if (x>left && x<right && y>top && y<bottom) e.preventDefault();
-    }, true);
+    }, true);  //capture phase
 
 
-    picker.on("pickerOpened", ()=>{
-        if(!rs.isMobile)$(".leaflet-popup-pane").appendChild($(".picker-content").parentElement);
-    })
 
-
-    document.onkeypress=k=>{
-        console.log(k.key);
-
+    const updateDetail4Picker = latlon => {
+        this.refs.detail2.innerHTML = `
+            Showing forecast data for <b>${store.get("product")}</b> <br>at position: lat ${latlon.lat.toFixed(5)}, lon ${latlon.lon.toFixed(5)}<br>on ${timeString(store.get("timestamp")/1000)}
+        `;
     }
 
+    const showProdButtons= latlon =>{       //and update detail when moving picker
+        let pointprods=getPointProductsAr(latlon);
+        for (let p in prodBtns) {
+            prodBtns[p].classList[pointprods.includes(p)?"remove":"add"]("hidden");
+        }
+    }
+
+    ////place the picker in the defualt popup-pane which is above all the other panes,
+    picker.on("pickerOpened", latlon=>{
+        deselectSelMarker();
+        highlightswitch.set("Forecast");
+        $("#radiosonde-zoom").classList.add("hidden");
+        showProdButtons(latlon);
+        if(!rs.isMobile)$(".leaflet-popup-pane").appendChild($(".picker-content").parentElement);
+        pickerPos=latlon;
+
+        //skewt.clear();
+        getAirData(prodSel, store.get("timestamp"), latlon.lat, latlon.lon, false);
+        updateDetail4Picker(pickerPos);
+    })
+
+    picker.on("pickerMoved", latlon=>{
+        showProdButtons(latlon);
+        pickerPos=latlon;
+        getAirData(prodSel, store.get("timestamp"), latlon.lat, latlon.lon, false);
+        updateDetail4Picker(pickerPos);
+    })
+
+    pickerTools.drag(latlon=>{
+        showProdButtons(latlon);
+        pickerPos=latlon;
+        getAirData( store.get("product"), store.get("timestamp"), latlon.lat, latlon.lon, false);
+        updateDetail4Picker(pickerPos);
+    }, 400, this.ident);
+
+    picker.on("pickerClosed",()=>{
+        if(W.plugins.detail.isOpen) return;
+        pickerPos=null;
+        if (!selMarker) skewt.clear();
+    });
+
+    store.on("timestamp",t=>{
+        if (pickerPos){
+            getAirData(prodSel, t, pickerPos.lat, pickerPos.lon, false);
+        }
+    })
+    store.on("product",(p,m)=>{
+        if(!prodSwitchClicked) prodSwitch.set(p);
+        prodSwitchClicked = false;
+        if (pickerPos){
+            getAirData(prodSel, store.get("timestamp"), pickerPos.lat,pickerPos.lon, false);
+            updateDetail4Picker(pickerPos);
+        }
+
+    })
+
+    //--manage detail plugin
+
+    const mapClick4Detail = ({latlng:{lat,lng:lon,fromMarker}}) => {
+        if (fromMarker) {
+            pickerPos=null;
+        } else {
+            deselectSelMarker();
+            pickerPos={lat,lon};
+            getAirData(prodSel, store.get("timestamp"), lat, lon, false);
+        }
+    }
+
+    const detailOpened = p => {
+        if (p!=="detail") return;
+
+        bcast.fire("rqstClose","picker");
+
+        //finicky fiddling to get the pogressLine box in the correct position.
+        //Intercept the listener in
+        //capture phase and make a custom event to be detected by the prgressBar,  with correct pageX and clientX
+
+        let progressLine=$(".progress-line",$("#detail"));
+        progressLine.addEventListener("mouseup",e=>{
+            if(e.myEvent) return;
+            e.stopImmediatePropagation();
+            let ev=new Event("mouseup",{bubbles:true})//,cancelable:true,composed:true});
+            ev.pageX=e.pageX-(thisPlugin.isOpen?newW:0);
+            ev.myEvent=true;
+            progressLine.dispatchEvent(ev);
+        }, true);
+        progressLine.addEventListener("mousemove",e=>{
+            if(e.myEvent) return;
+            e.stopImmediatePropagation();
+            let ev=new Event("mousemove",{bubbles:true})//,cancelable:true,composed:true});
+            ev.clientX=e.clientX-(thisPlugin.isOpen?newW:0);
+            ev.myEvent=true;
+            progressLine.dispatchEvent(ev);
+        }, true);
+
+        map.on("click",mapClick4Detail);
+    }
+
+    const detailClosed = p =>{
+        if (p==="detail"){
+            map.off("click",mapClick4Detail);
+        }
+    }
+
+    //--  Drag border of left pane
+    const dragDiv = Object.assign(
+        {
+            el: $(".drag-right-border"),
+            elLine: $(".right-border-line", this.el),
+
+            ondrag: function (x, y) {
+                //x and y are values relative to offsetLeft and offsetTop of el (in this case #dragdemo-container)
+                //so on drag start: x = this.el.offsetLeft.
+                //x = x < 0 ? 0 : x > $("#dragdemo-container").offsetWidth - 22 ? $("#dragdemo-container").offsetWidth - 22 : x;
+                //y = y < 0 ? 0 : y > $("#dragdemo-container").offsetHeight - 22 ? $("#dragdemo-container").offsetHeight - 22 : y;
+                if (x>300) this.el.style.left = x + "px";
+                //this.el.style.top = y + "px";
+            },
+
+            ondragstart: function (xy) {
+                this.elLine.classList.remove("hidden");
+                //xy[0] and xy[1] refers to main window coords.   Available in rest of obj as this.startXY[0] and this.startXY[1].
+                //not needed here
+            },
+
+            ondragend: function (e) {
+                newW=this.el.offsetLeft+5;
+                thisPlugin.element.style.width=newW+"px";
+                document.head.insertAdjacentHTML('beforeend', `<style> .onwindy-plugin-radiosonde .left-border{left:${newW}px;} </style>`);
+                document.head.insertAdjacentHTML('beforeend', `<style> .skew-t .fnt{font:${newW<340?9: newW<400?10: newW<500?11:12}px Arial;} </style>`);
+                document.head.insertAdjacentHTML('beforeend', `<style> #windy-plugin-radiosonde{font:${newW<340?9: newW<400?10: newW<500?11:12}px Arial;} </style>`);
+                this.elLine.classList.add("hidden");
+                setTimeout(skewt.resize,500);
+            }
+        },
+        Drag
+    );
+    dragDiv._init();
+
+
+
+
+    //-- refresh data not using yet
+    function slowTickHandler() {
+        // read the directory and check the timestamp on <toplevel>/data/summary.geojson.br
+        //
+        // the web server is configured to return directory listings as JSON
+        // unfortunately mtime comes in RFC1123 format
+        fetch(datapath+"summary.geojson").then(r=>r.json()).then(dirlist=>{
+        //$.getJSON(toplevel + datadir, function(dirlist) {
+            //console.log(dirlist);
+            console.log("dirlist", dirlist);
+            dirlist.features.forEach(function(entry, index) {
+                if (entry.name === summary_br) {
+                    var ts = moment.utc(entry.mtime, 'ddd, DD MMM YYYY HH:mm:ss').unix();
+                    if (ts > summaryGenerated + 30) {
+                        //$.growl.notice({
+                        //console.log(      `
+                        //    title: "new ascents available",
+                        //    message: "click reload to update"
+                        //`)
+                        //});
+                    }
+                }
+            });
+        });
+    };
+    setInterval(slowTickHandler, 1 * 6e4);
+
+    //-- generate detail
+    function genDetail(fc, container) {
+
+        const bold = c => `<b>${c}</b>`;
+        const round6 = value => Math.round(value * 1000000) / 1000000;
+        const round3 = value => Math.round(value * 1000) / 1000;
+        const now= () => Math.floor(Date.now() / 1000);
+
+
+        var p = fc.properties;
+        var i = fc.features.length-1;
+        while (fc.features[i].geometry.type != 'Point') {
+            i -= 1;
+        }
+        var lastpt = fc.features[i];
+
+        var para = "<p>";
+        var brk = "<br>";
+        var detail = container;//document.getElementById(container);
+        var html;
+        var s = "Station: " + p.station_name;
+        if (p.id_type == "mobile")
+            s += " (mobile)";
+        if (p.id_type == "wmo")
+            s += " (WMO id: " + p.station_id + ")";
+
+    ////
+        html = bold(s) + para + para;
+
+        var lat, lon, ns, ew;
+        if (p.lat > 0) {
+            ns = "N";
+            lat = p.lat;
+        }
+        else {
+            ns = "S";
+            lat = -p.lat;
+        }
+        if (p.lon > 0) {
+            ew = "E";
+            lon = p.lon;
+        }
+        else {
+            ew = "W";
+            lon = -p.lon;
+        }
+        html += bold("location:   ") +
+            "<a target=\"_blank\" href=\"https://www.google.com/maps/search/?api=1&zoom=12&query=" +
+            p.lat + "," + p.lon + "\">" +
+            round6(lat) + ns + " " + round6(lon) + ew + " </a>" + brk;
+
+        html += bold("elevation:   ") + p.elevation + "m" + brk;
+        html += bold("last recorded height:   ") + Math.round(lastpt.geometry.coordinates[2]) + "m  (" +
+        Math.round(lastpt.properties.pressure) + "hPa)" + brk;
+        if (p.text)
+            html += bold("text:   ") + p.text + brk;
+
+        html += bold("samples:   ") + fc.features.length + brk;
+
+        html += bold("track source:   ");
+        if (p.path_source == "origin")
+            html += "   GPS";
+        if (p.path_source == "simulated")
+            html += "   simulated";
+
+        html += brk;
+        var rounded_age = Math.round(((now() - p.syn_timestamp) / 3600)*10)/10;
+        html += bold("Synoptic time:   ") + timeString(p.syn_timestamp)
+        + " (" + rounded_age + " hours old)" +  brk;
+
+
+        if (p.firstSeen)
+            html += bold("First seen:   ") + timeString(p.firstSeen) + brk;
+        if (p.lastSeen)
+            html += bold("Last seen:   ") + timeString(p.lastSeen) +
+            " (" + minsec(p.lastSeen - p.firstSeen) + " later)" + brk;
+
+        if (p.arrived) {
+            html += bold("Arrived:   ") + timeString(p.arrived);
+        if (p.lastSeen) {
+            html +=   " (" + minsec(p.arrived - p.lastSeen) + " after last seen)";
+        }
+        html += brk;
+        }
+        if (p.processed) {
+            html += bold("Online:   ") + timeString(p.processed) +
+                " (" + minsec(p.processed - p.arrived) + " after arrival)" + brk;
+        }
+        html += para + bold("Sonde:") + brk;
+        if (('sonde_type' in p)   && sondeinfo.sonde_types[p.sonde_type])
+            html += bold("type:   ") + sondeinfo.sonde_types[p.sonde_type] + brk;
+        if (p.sonde_serial)
+            html += bold("serial number:   ") + p.sonde_serial + brk;
+        if (p.sonde_frequency)
+            html += bold("transmit frequency:   ") + round3(p.sonde_frequency / 1000) / 1000 + " MHz" + brk;
+
+        if (p.sonde_swversion)
+            html += bold("SW version:   ") + p.sonde_swversion + brk;
+        if (('sonde_humcorr' in p) && sondeinfo.sonde_humcorr[p.sonde_humcorr])
+            html += bold("humidity correction:   ") + sondeinfo.sonde_humcorr[p.sonde_humcorr] + brk;
+
+
+        if (('sonde_psensor' in p) && sondeinfo.sonde_psensor[p.sonde_psensor])
+            html += bold("pressure sensor:   ") + sondeinfo.sonde_psensor[p.sonde_psensor] + brk;
+        if (('sonde_tsensor' in p) && sondeinfo.sonde_tsensor[p.sonde_tsensor])
+            html += bold("temperature sensor:   ") + sondeinfo.sonde_tsensor[p.sonde_tsensor] + brk;
+        if (('sonde_hsensor' in p) && sondeinfo.sonde_hsensor[p.sonde_hsensor])
+            html += bold("humidity sensor:   ") + sondeinfo.sonde_hsensor[p.sonde_hsensor] + brk;
+        if (('sonde_humcorr' in p) && sondeinfo.sonde_humcorr[p.sonde_humcorr])
+            html += bold("humidity correction:   ") + sondeinfo.sonde_humcorr[p.sonde_humcorr] + brk;
+
+        if (('sonde_gepot' in p) && sondeinfo.sonde_gepot[p.sonde_gepot])
+            html += bold("geopotential height:   ") + sondeinfo.sonde_gepot[p.sonde_gepot] + brk;
+
+        if (('sonde_term' in p) && sondeinfo.sonde_term[p.sonde_term])
+            html += bold("termination reason:   ") + sondeinfo.sonde_term[p.sonde_term] + brk;
+
+        html += para + bold("Balloon:") + brk;
+        if (('balloon_manufacturer' in p) && (p.balloon_manufacturer in  sondeinfo.balloon_manufacturer))
+            html += bold("Manufacturer:   ") + sondeinfo.balloon_manufacturer[p.balloon_manufacturer] + brk;
+
+       if (('balloon_type' in p) && sondeinfo.balloon_type[p.balloon_type])
+           html += bold("Type:   ") + sondeinfo.balloon_type[p.balloon_type] + brk;
+
+        if ('balloon_weight' in p)
+            html += bold("Weight:   ")  +  Math.round(p.balloon_weight*100)/100 + "kg" + brk;
+
+        if (('gas_type' in p) && sondeinfo.gas_type[p.gas_type])
+            html += bold("Gas:   ") + sondeinfo.gas_type[p.gas_type] + brk;
+
+        if ('gas_weight' in p)
+            html += bold("Gas amount:   ") + Math.round(p.gas_weight*100)/100 + "kg" + brk;
+
+
+        html += para + bold("Data reference:") + brk;
+        if (p.channel)
+        html += bold("source:   ") + p.channel + brk;
+        html += bold("format:   ") + p.repfmt + "/" + p.encoding + brk;
+        if (p.origin_member) {
+            if (p.origin_archive) {
+                html += bold("source file:  ") + p.origin_member + brk;
+            } else {
+                html += bold("source file:  ") +
+                    "<a  style='text-decoration:underline' href=\"https://radiosonde.mah.priv.at/source/" +
+                    p.origin_member  + "\">" +  p.origin_member + " </a>" + brk;
+            }
+        }
+
+        if (p.origin_archive) {
+            html += bold("source archive:  ") +
+                "<a  href=\"https://radiosonde.mah.priv.at/source/" +
+                p.origin_archive  + "\">" +  p.origin_archive + " </a>" + brk;
+        }
+        if (p.gts_topic)
+            html += bold("GTS topic:   ") + p.gts_topic + brk;
+        if (p.fmt)
+            html += bold("detail file format:   ") + " version " + p.fmt + brk;
+
+        detail.innerHTML = html;
+    }
+
+
+    document.addEventListener("keydown",k=>{
+        if(k.key=="ArrowRight" || k.key=="ArrowLeft"){
+            if($(":hover",this.refs.syntimeRangeCont)){
+                k.stopImmediatePropagation();
+            }
+        }
+    },  true);
 
 </script>
 </plugin>
