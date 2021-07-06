@@ -70,6 +70,15 @@
 
 
 <script>
+
+    let aobj={a:1,b:2};
+    for (let p in aobj){
+        console.log(p);
+        document.addEventListener("keydown", k=>{
+            if(k.key == p) console.log(p);
+        });
+    }
+
     import $ from '@windy/$';
     import map from '@windy/map';
     import picker from '@windy/picker';

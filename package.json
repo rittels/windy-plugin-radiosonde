@@ -1,10 +1,10 @@
 {
   "name": "windy-plugin-radiosonde",
-  "version": "0.0.920",
+  "version": "0.0.921",
   "description": "radiosonde plugin for Windy",
   "main": "dist/plugin.js",
   "scripts": {
-    "start": "node ./compiler.js --build --watch --prompt --serve --transpile --minify",
+    "start": "node ./compiler.js --build --watch --prompt --serve --transpile ",
     "start-dev": "node ./compiler.js --build --watch --serve --transpile",
     "prepublishOnly": "node ./test/prepublish.js",
     "test": "node ./test/prepublish.js",

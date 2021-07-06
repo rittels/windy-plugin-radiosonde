@@ -1,5 +1,5 @@
 
-    import pluginDataLoader from '@@windy/plugins/plugin-data-loader';
+    import pluginDataLoader from '@windy/@plugins/plugin-data-loader';
 
     const load = pluginDataLoader({
         key: 'tqBdvHJjtNrGq4TrFzt9D5NDz9fIZSC8'

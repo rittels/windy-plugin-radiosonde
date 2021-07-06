@@ -6,7 +6,7 @@ module.exports = {
     ,
     dependencies: [
 
-        "https://d3js.org/d3.v5.min.js",
+        //"https://d3js.org/d3.v5.min.js",
         "https://unpkg.com/skewt-plus/dist/bundle.js",
 
     ],
